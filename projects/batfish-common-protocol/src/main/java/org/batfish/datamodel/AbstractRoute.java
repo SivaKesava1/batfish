@@ -23,11 +23,11 @@ public abstract class AbstractRoute implements Serializable, Comparable<Abstract
 
   protected static final String PROP_NEXT_HOP_IP = "nextHopIp";
 
-  private static final String PROP_NEXT_HOP = "nextHop";
+  protected static final String PROP_NEXT_HOP = "nextHop";
 
   public static final int NO_TAG = -1;
 
-  private static final String PROP_NODE = "node";
+  protected static final String PROP_NODE = "node";
 
   protected static final String PROP_PROTOCOL = "protocol";
 
@@ -145,11 +145,9 @@ public abstract class AbstractRoute implements Serializable, Comparable<Abstract
     String admin = Integer.toString(getAdministrativeCost());
     String cost = Long.toString(getMetric());
     String prot = getProtocol().protocolName();
-    String routeStr =
-        String.format(
-            "%s vrf:%s net:%s nhip:%s nhint:%s nhnode:%s admin:%s cost:%s tag:%s prot:%s %s",
-            _node, _vrf, net, nhip, nhint, nhnode, admin, cost, tag, prot, protocolRouteString());
-    return routeStr;
+    return String.format(
+        "%s vrf:%s net:%s nhip:%s nhint:%s nhnode:%s admin:%s cost:%s tag:%s prot:%s %s",
+        _node, _vrf, net, nhip, nhint, nhnode, admin, cost, tag, prot, protocolRouteString());
   }
 
   @JsonIgnore

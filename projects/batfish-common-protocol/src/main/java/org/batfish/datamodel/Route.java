@@ -3,33 +3,15 @@ package org.batfish.datamodel;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
-import java.io.Serializable;
 import javax.annotation.Nullable;
 
 @JsonPropertyOrder({Route.PROP_DIFF_SYMBOL})
-public class Route implements Comparable<Route>, Serializable {
-
-  private static final String PROP_ADMINISTRATIVE_COST = "administrativeCost";
+public class Route extends AbstractRoute {
 
   public static final String AMBIGUOUS_NEXT_HOP = "(ambiguous)";
 
   protected static final String PROP_DIFF_SYMBOL = "diffSymbol";
 
-  private static final String PROP_METRIC = "metric";
-
-  private static final String PROP_NETWORK = "network";
-
-  private static final String PROP_NEXT_HOP_INTERFACE = "nextHopInterface";
-
-  private static final String PROP_NEXT_HOP_IP = "nextHopIp";
-
-  private static final String PROP_NEXT_HOP = "nextHop";
-
-  private static final String PROP_NODE = "node";
-
-  private static final String PROP_PROTOCOL = "protocol";
-
-  /** */
   private static final long serialVersionUID = 1L;
 
   private static final String PROP_TAG = "tag";
@@ -51,8 +33,6 @@ public class Route implements Comparable<Route>, Serializable {
   private final int _administrativeCost;
 
   private final long _metric;
-
-  private final Prefix _network;
 
   private final String _nextHop;
 
@@ -80,7 +60,7 @@ public class Route implements Comparable<Route>, Serializable {
       @JsonProperty(PROP_METRIC) long metric,
       @JsonProperty(PROP_PROTOCOL) RoutingProtocol protocol,
       @JsonProperty(PROP_TAG) int tag) {
-    _network = network;
+    super(network);
     _nextHopIp = nextHopIp;
     _node = node;
     _nextHop = nextHop;
@@ -92,7 +72,6 @@ public class Route implements Comparable<Route>, Serializable {
     _vrf = vrf;
   }
 
-  @Override
   public int compareTo(Route rhs) {
     int result = _node.compareTo(rhs._node);
     if (result != 0) {
@@ -161,51 +140,54 @@ public class Route implements Comparable<Route>, Serializable {
     return true;
   }
 
+  @Override
   @JsonProperty(PROP_ADMINISTRATIVE_COST)
   public int getAdministrativeCost() {
     return _administrativeCost;
   }
 
-  @JsonProperty(PROP_METRIC)
-  public long getMetric() {
+  @Override
+  public Long getMetric() {
     return _metric;
   }
 
-  @JsonProperty(PROP_NETWORK)
-  public Prefix getNetwork() {
-    return _network;
-  }
-
+  @Override
   @JsonProperty(PROP_NEXT_HOP)
   public String getNextHop() {
     return _nextHop;
   }
 
+  @Override
   @JsonProperty(PROP_NEXT_HOP_INTERFACE)
   public String getNextHopInterface() {
     return _nextHopInterface;
   }
 
+  @Override
   @JsonProperty(PROP_NEXT_HOP_IP)
   public Ip getNextHopIp() {
     return _nextHopIp;
   }
 
+  @Override
   @JsonProperty(PROP_NODE)
   public String getNode() {
     return _node;
   }
 
+  @Override
   @JsonProperty(PROP_PROTOCOL)
   public RoutingProtocol getProtocol() {
     return _protocol;
   }
 
+  @Override
   @JsonProperty(PROP_TAG)
   public int getTag() {
     return _tag;
   }
 
+  @Override
   public String getVrf() {
     return _vrf;
   }
@@ -223,6 +205,16 @@ public class Route implements Comparable<Route>, Serializable {
     result = prime * result + _tag;
     result = prime * result + _vrf.hashCode();
     return result;
+  }
+
+  @Override
+  protected String protocolRouteString() {
+    return _protocol.toString();
+  }
+
+  @Override
+  public int routeCompare(AbstractRoute rhs) {
+    return 0;
   }
 
   public String prettyPrint(@Nullable String diffSymbol) {

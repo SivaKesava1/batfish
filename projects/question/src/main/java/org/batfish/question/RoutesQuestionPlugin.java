@@ -44,7 +44,7 @@ public class RoutesQuestionPlugin extends QuestionPlugin {
 
     private static final String PROP_ROUTES_BY_HOSTNAME = "routesByHostname";
 
-    private SortedSet<Route> _added;
+    private SortedSet<AbstractRoute> _added;
 
     private boolean _againstEnvironment;
 
@@ -52,7 +52,7 @@ public class RoutesQuestionPlugin extends QuestionPlugin {
 
     private SortedMap<String, SortedMap<String, SortedSet<AbstractRoute>>> _detailRoutesByHostname;
 
-    private SortedSet<Route> _removed;
+    private SortedSet<AbstractRoute> _removed;
 
     private SortedMap<String, RoutesByVrf> _routesByHostname;
 
@@ -222,7 +222,7 @@ public class RoutesQuestionPlugin extends QuestionPlugin {
     }
 
     @JsonProperty(PROP_ADDED)
-    public SortedSet<Route> getAdded() {
+    public SortedSet<AbstractRoute> getAdded() {
       return _added;
     }
 
@@ -243,7 +243,7 @@ public class RoutesQuestionPlugin extends QuestionPlugin {
     }
 
     @JsonProperty(PROP_REMOVED)
-    public SortedSet<Route> getRemoved() {
+    public SortedSet<AbstractRoute> getRemoved() {
       return _removed;
     }
 
@@ -288,7 +288,7 @@ public class RoutesQuestionPlugin extends QuestionPlugin {
               }
               String diffStr = diffSymbol != null ? diffSymbol + " " : "";
               String routeStr = route.fullString();
-              String newStr = String.format("%s%s\n", diffStr, routeStr);
+              String newStr = String.format("%s%s%n", diffStr, routeStr);
               sb.append(newStr);
             }
           }
@@ -298,7 +298,7 @@ public class RoutesQuestionPlugin extends QuestionPlugin {
     }
 
     @JsonProperty(PROP_ADDED)
-    public void setAdded(SortedSet<Route> added) {
+    public void setAdded(SortedSet<AbstractRoute> added) {
       _added = added;
     }
 
@@ -319,7 +319,7 @@ public class RoutesQuestionPlugin extends QuestionPlugin {
     }
 
     @JsonProperty(PROP_REMOVED)
-    public void setRemoved(SortedSet<Route> removed) {
+    public void setRemoved(SortedSet<AbstractRoute> removed) {
       _removed = removed;
     }
 
