@@ -180,6 +180,7 @@
               <excludeRoot>${project.build.directory}/generated-sources</excludeRoot>
               <excludeRoot>${project.build.directory}/generated-test-sources</excludeRoot>
             </excludeRoots>
+            <includeTests>true</includeTests>
             <rulesets>
               <ruleset>org/batfish/pmd/pmd-ruleset.xml</ruleset>
             </rulesets>
@@ -522,6 +523,12 @@
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-databind</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.fasterxml.jackson.datatype</groupId>
+        <artifactId>jackson-datatype-guava</artifactId>
         <version>${jackson.version}</version>
       </dependency>
 
