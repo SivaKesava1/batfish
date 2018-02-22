@@ -4070,7 +4070,6 @@ public class Batfish extends PluginConsumer implements IBatfish {
       boolean useCompression) {
     Settings settings = getSettings();
     String tag = getFlowTag(_testrigSettings);
-    Set<Flow> flows = null;
 
     CompressDataPlaneResult compressionResult =
         useCompression ? computeCompressedDataPlane(headerSpace) : null;
@@ -4155,7 +4154,7 @@ public class Batfish extends PluginConsumer implements IBatfish {
             .collect(Collectors.toList());
 
     // run jobs and get resulting flows
-    flows = computeNodOutput(jobs);
+    Set<Flow> flows = computeNodOutput(jobs);
 
     getDataPlanePlugin().processFlows(flows, loadDataPlane());
 
