@@ -1,29 +1,36 @@
 package org.batfish.question;
 
 import static com.google.common.base.MoreObjects.firstNonNull;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.auto.service.AutoService;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.lang.Math;
-import java.util.Iterator;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.SortedSet;
+import java.util.TreeMap;
 import java.util.Map.Entry;
 import java.util.NavigableMap;
 import org.batfish.common.Answerer;
 import org.batfish.common.BatfishException;
 import org.batfish.common.plugin.IBatfish;
 import org.batfish.common.plugin.Plugin;
+import org.batfish.common.util.CommonUtil;
 import org.batfish.datamodel.Configuration;
+import org.batfish.datamodel.Edge;
 import org.batfish.datamodel.Interface;
 import org.batfish.datamodel.Ip;
+import org.batfish.datamodel.Topology;
 import org.batfish.datamodel.answers.AnswerElement;
+import org.batfish.datamodel.collections.NodeInterfacePair;
 import org.batfish.datamodel.questions.INodeRegexQuestion;
 import org.batfish.datamodel.questions.NodesSpecifier;
 import org.batfish.datamodel.questions.Question;
@@ -356,8 +363,8 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
     private class NodeData{
       Map<Ip, Entry<String, String>> _nodeintf;
       
-      NodeData(Map<Ip, Entry<String, String>> nodeintf ){
-        _nodeintf = new HashMap<Ip, Entry<String, String>>(nodeintf);
+      NodeData(Map<Ip, Entry<String, String>> nodeintf){
+        _nodeintf = new HashMap<>(nodeintf);
       }
       
     }
@@ -428,14 +435,20 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
       int intfScore = 0;
       int i = 0;
       
-      if(node1._nodeintf.size() == 0 ||  node2._nodeintf.size() ==0) {
+      if (node1._nodeintf.size() == 0 ||  node2._nodeintf.size() ==0) {
         intfScore = (int) Math.pow(2, 24);
         intfMap = new int[0];
-      }
-      else
-      {
+        } else {
+
+        if(node1._nodeintf.size() < node2._nodeintf.size()) {
+          NodeData tmp = node2;
+          node2 = node1;
+          node1 = tmp;
+          String stmp = node2_name;
+          node2_name = node1_name;
+          node1_name = stmp;
+        }
         double[][] weight = new double[node1._nodeintf.size()][node2._nodeintf.size()];
-        
         for(Ip ip1:node1._nodeintf.keySet()) {
           int j =0;
           for(Ip ip2:node2._nodeintf.keySet()) {
@@ -458,6 +471,27 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
       return new Pair(node1_name, node2_name, editDistance, intfMap, intfScore);
     }
     
+    private  SortedMap<String, Set<String>> sortedgesbyroles(SortedSet<Edge> edges, String node, SortedMap<String, SortedSet<String>> roleNodeMap) {
+      SortedMap<String, Set<String>> edgesbyroles = new  TreeMap<>();
+   
+      for(String s : roleNodeMap.keySet()) {
+        edgesbyroles.put(s,new  HashSet<>());
+      }
+      
+      for(Edge e : edges) {
+        NodeInterfacePair first = e.getFirst();
+        if(!first.getHostname().equals(node)) {
+          for(String s : roleNodeMap.keySet()) {
+            if(roleNodeMap.get(s).contains(first.getHostname())) {
+              edgesbyroles.get(s).add(e.getInt2());
+              break;
+            }
+          }
+        }
+      }
+      return edgesbyroles;
+    }
+
     @Override
     public AnswerElement answer() {
       RoleInterfaceMatchingQuestion question = (RoleInterfaceMatchingQuestion) _question;
@@ -469,21 +503,45 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
               .orElseThrow(
                   () ->
                       new BatfishException(
-                          "No role dimension found for "));
+                          "No role dimension found "));
       SortedMap<String, SortedSet<String>> roleNodeMap =
           roleDimension.createRoleNodesMap(_nodes);
       String [] nodes = _nodes.toArray(new String[_nodes.size()]);
       Map<String, Configuration> configurations = _batfish.loadConfigurations();
-      Map<String, NodeData> requireddata = new HashMap<String,NodeData>();     
+      Map<String, NodeData> requireddata = new HashMap<>();
+      Map<String, Set<Interface>>  dataR= CommonUtil.computeNodeInterfaces(configurations);
+      Topology topology = _batfish.getEnvironmentTopology();
+      Map<String, SortedSet<Edge>> nodeedges =   topology.getNodeEdges();
+      Map<String, SortedMap<String, Set<String>>> nodeEdgesbyRoles= new HashMap<>();
       for(String hostname: nodes) {
         Configuration node = configurations.get(hostname);
         NodeData nodedata = new NodeData(interface_name_mapping(node.getInterfaces()));
         requireddata.put(hostname, nodedata);  
+        nodeEdgesbyRoles.put(hostname, sortedgesbyroles(nodeedges.get(hostname),hostname,roleNodeMap));
       }
-      
       List<String> roles = new ArrayList<String>(roleNodeMap.keySet());
       StringBuilder sb = new StringBuilder("Results for Interface Matching\n");
      
+      for(String r:roles) {
+        List<String> roleNodes = new ArrayList<String>(roleNodeMap.get(r));
+        for(int k =0 ; k<roleNodes.size();k++) {
+          String node1 = roleNodes.get(k);
+          for(int l =k+1 ; l<roleNodes.size();l++) {
+            String node2 = roleNodes.get(l);
+            SortedMap<String, Set<String>> node1SortedEdges = nodeEdgesbyRoles.get(node1);
+            SortedMap<String, Set<String>> node2SortedEdges = nodeEdgesbyRoles.get(node2);
+            sb.append("\n\nRouter1:"+node1+"\nRouter2:"+node2);
+            for(String s:node1SortedEdges.keySet()) {
+              if (node1SortedEdges.get(s).size() + node2SortedEdges.get(s).size() >0) {
+                sb.append("\n Role: "+s+"\n");
+                sb.append(" R1 interfaces: "+ node1SortedEdges.get(s));
+                sb.append("\n R2 interfaces: "+ node2SortedEdges.get(s));
+              }
+            }
+          }
+        }
+      }    
+      
       for(int i=0; i<roles.size();i++) {
        List<String> roleNodes = new ArrayList<String>(roleNodeMap.get(roles.get(i)));
        sb.append(roles.get(i));
@@ -495,21 +553,23 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
            String Node2 = roleNodes.get(l);
            Pair role_pair = mapping_from_JSON(requireddata.get(Node1),requireddata.get(Node2),
                Node1, Node2);
-           Map<Ip, Entry<String, String>> node1 = requireddata.get(Node1)._nodeintf;
-           Map<Ip, Entry<String, String>> node2 = requireddata.get(Node2)._nodeintf;
+           Map<Ip, Entry<String, String>> node1 = requireddata.get(role_pair._node1)._nodeintf;
+           Map<Ip, Entry<String, String>> node2 = requireddata.get(role_pair._node2)._nodeintf;
            List<Ip> keysN2 = new ArrayList<Ip>(node2.keySet());
            List<Ip> keysN1 = new ArrayList<Ip>(node1.keySet());         
            sb.append("\nRouter1: " + role_pair._node1 + "\nRouter2: "+ role_pair._node2 + "\nInterfaceIPScore: " + role_pair._intfScore + "\nNameEditDistance: " +role_pair._editDistance + "\n");
-           for(int j=0;j<role_pair._intfMap.length;j++)
-           {
+           for(int j=0;j<role_pair._intfMap.length;j++) {
              if(role_pair._intfMap[j] != -1) {
-              sb.append("R1:  (" + keysN1.get(j)+ " , "+ node1.get(keysN1.get(j)) + ")\nR2:  ("+
-                   keysN2.get(role_pair._intfMap[j]) + " , "+ node2.get(keysN2.get(role_pair._intfMap[j])) + ")\n");
+              sb.append("R1:  (" + keysN1.get(j)+ " , "+ node1.get(keysN1.get(j)) + ")\nR2:  ("
+                  + keysN2.get(role_pair._intfMap[j]) + " , "+ node2.get(keysN2.get(role_pair._intfMap[j])) + ")\n");
+             } else {
+               sb.append("R1:  (" + keysN1.get(j)+ " , "+ node1.get(keysN1.get(j)) + ")\nR2:  None\n");
              }
            }
          }
        }
-      }    
+      }     
+         
       RoleInterfaceMatchingAnswerElement answerElement  = new RoleInterfaceMatchingAnswerElement(sb.toString());
       return answerElement;
     }
@@ -520,7 +580,8 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
 
     private static final String PROP_NODE_REGEX = "nodeRegex";
     private NodesSpecifier _nodeRegex;
-    public RoleInterfaceMatchingQuestion( @JsonProperty(PROP_NODE_REGEX) NodesSpecifier nodeRegex) {
+
+    public RoleInterfaceMatchingQuestion(@JsonProperty(PROP_NODE_REGEX) NodesSpecifier nodeRegex) {
        _nodeRegex = firstNonNull(nodeRegex, NodesSpecifier.ALL);
     }
     
