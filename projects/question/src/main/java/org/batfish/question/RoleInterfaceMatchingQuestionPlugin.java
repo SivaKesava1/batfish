@@ -10,7 +10,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.lang.Math;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -460,7 +459,6 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
         
         HungarianAlgorithm intf_matching = new  HungarianAlgorithm(weight);
         intfMap = intf_matching.execute();
-        intfScore = 0;
         for(int k =0; k < intfMap.length; k++) {
           if(intfMap[k] != -1) {
             intfScore = (int) (intfScore + weight[k][intfMap[k]]);
@@ -477,14 +475,15 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
       for(String s : roleNodeMap.keySet()) {
         edgesbyroles.put(s,new  HashSet<>());
       }
-      
-      for(Edge e : edges) {
-        NodeInterfacePair first = e.getFirst();
-        if(!first.getHostname().equals(node)) {
-          for(String s : roleNodeMap.keySet()) {
-            if(roleNodeMap.get(s).contains(first.getHostname())) {
-              edgesbyroles.get(s).add(e.getInt2());
-              break;
+      if(edges != null){
+        for(Edge e : edges) {
+          NodeInterfacePair first = e.getFirst();
+          if(!first.getHostname().equals(node)) {
+            for(String s : roleNodeMap.keySet()) {
+              if(roleNodeMap.get(s).contains(first.getHostname())) {
+                edgesbyroles.get(s).add(e.getInt2());
+                break;
+              }
             }
           }
         }
@@ -509,7 +508,7 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
       String [] nodes = _nodes.toArray(new String[_nodes.size()]);
       Map<String, Configuration> configurations = _batfish.loadConfigurations();
       Map<String, NodeData> requireddata = new HashMap<>();
-      Map<String, Set<Interface>>  dataR= CommonUtil.computeNodeInterfaces(configurations);
+      Map<String, Set<Interface>>  nodeInterface = CommonUtil.computeNodeInterfaces(configurations);
       Topology topology = _batfish.getEnvironmentTopology();
       Map<String, SortedSet<Edge>> nodeedges =   topology.getNodeEdges();
       Map<String, SortedMap<String, Set<String>>> nodeEdgesbyRoles= new HashMap<>();
@@ -519,11 +518,11 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
         requireddata.put(hostname, nodedata);  
         nodeEdgesbyRoles.put(hostname, sortedgesbyroles(nodeedges.get(hostname),hostname,roleNodeMap));
       }
-      List<String> roles = new ArrayList<String>(roleNodeMap.keySet());
+      List<String> roles = new ArrayList<>(roleNodeMap.keySet());
       StringBuilder sb = new StringBuilder("Results for Interface Matching\n");
      
       for(String r:roles) {
-        List<String> roleNodes = new ArrayList<String>(roleNodeMap.get(r));
+        List<String> roleNodes = new ArrayList<>(roleNodeMap.get(r));
         for(int k =0 ; k<roleNodes.size();k++) {
           String node1 = roleNodes.get(k);
           for(int l =k+1 ; l<roleNodes.size();l++) {
@@ -533,9 +532,30 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
             sb.append("\n\nRouter1:"+node1+"\nRouter2:"+node2);
             for(String s:node1SortedEdges.keySet()) {
               if (node1SortedEdges.get(s).size() + node2SortedEdges.get(s).size() >0) {
-                sb.append("\n Role: "+s+"\n");
-                sb.append(" R1 interfaces: "+ node1SortedEdges.get(s));
-                sb.append("\n R2 interfaces: "+ node2SortedEdges.get(s));
+                sb.append("\n Interface/s Connects to Role: "+s+"\n");
+                Set<Interface> node1Interfaces =  nodeInterface.get(node1);
+                Set<Interface> node2Interfaces =  nodeInterface.get(node2);
+
+                sb.append(" R1 interfaces: [");
+                for(String interfaceName : node1SortedEdges.get(s)) {
+                  for(Interface i: node1Interfaces) {
+                    if(i.getDeclaredNames().contains(interfaceName)){
+                      sb.append(interfaceName + " - "+ i.getAddress().toString() + " - " + i.getDescription() + " , ");
+                      break;
+                    }
+                  }
+                }
+
+                sb.append("]\n R2 interfaces: [");
+                for(String interfaceName : node2SortedEdges.get(s)) {
+                  for(Interface i: node2Interfaces) {
+                    if(i.getDeclaredNames().contains(interfaceName)){
+                      sb.append(interfaceName + " - "+ i.getAddress().toString() + " - " + i.getDescription() + " , ");
+                      break;
+                    }
+                  }
+                }
+                sb.append("]\n");
               }
             }
           }
@@ -543,7 +563,7 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
       }    
       
       for(int i=0; i<roles.size();i++) {
-       List<String> roleNodes = new ArrayList<String>(roleNodeMap.get(roles.get(i)));
+       List<String> roleNodes = new ArrayList<>(roleNodeMap.get(roles.get(i)));
        sb.append(roles.get(i));
        sb.append(roleNodes.toString());
        sb.append("\n");
@@ -555,8 +575,8 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
                Node1, Node2);
            Map<Ip, Entry<String, String>> node1 = requireddata.get(role_pair._node1)._nodeintf;
            Map<Ip, Entry<String, String>> node2 = requireddata.get(role_pair._node2)._nodeintf;
-           List<Ip> keysN2 = new ArrayList<Ip>(node2.keySet());
-           List<Ip> keysN1 = new ArrayList<Ip>(node1.keySet());         
+           List<Ip> keysN2 = new ArrayList<>(node2.keySet());
+           List<Ip> keysN1 = new ArrayList<>(node1.keySet());
            sb.append("\nRouter1: " + role_pair._node1 + "\nRouter2: "+ role_pair._node2 + "\nInterfaceIPScore: " + role_pair._intfScore + "\nNameEditDistance: " +role_pair._editDistance + "\n");
            for(int j=0;j<role_pair._intfMap.length;j++) {
              if(role_pair._intfMap[j] != -1) {
