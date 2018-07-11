@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.lang.Math;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -369,7 +370,7 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
       }
     }
 
-    public static int distance(String s1, String s2) {
+    private static int distance(String s1, String s2) {
       int edits[][] = new int[s1.length() + 1][s2.length() + 1];
       for (int i = 0; i <= s1.length(); i++) edits[i][0] = i;
       for (int j = 1; j <= s2.length(); j++) edits[0][j] = j;
@@ -385,7 +386,7 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
 
     private Map<Ip, Entry<String, String>> interface_name_mapping(
         NavigableMap<String, Interface> interfaces) {
-      Map<Ip, Entry<String, String>> actionMap = new HashMap<Ip, Entry<String, String>>();
+      Map<Ip, Entry<String, String>> actionMap = new HashMap<>();
       for (Entry<String, Interface> e : interfaces.entrySet()) {
         if (e.getValue().getAllAddresses().size() != 0) {
           String name;
@@ -403,8 +404,7 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
       return actionMap;
     }
 
-    private Pair mapping_from_JSON(
-        NodeData node1, NodeData node2, String node1Name, String node2Name) {
+    private Pair IPMapping(NodeData node1, NodeData node2, String node1Name, String node2Name) {
 
       int editDistance = distance(node1Name, node2Name);
 
@@ -447,12 +447,65 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
       return new Pair(node1Name, node2Name, editDistance, intfMap, intfScore);
     }
 
+    private Pair neighborNameMapping(
+        LinkedHashMap<String, Set<Interface>> node1Interfaces,
+        LinkedHashMap<String, Set<Interface>> node2Interfaces,
+        String node1Name,
+        String node2Name) {
+
+      int editDistance = distance(node1Name, node2Name);
+
+      int[] intfMap = null;
+      int intfScore = 0;
+      int i = 0;
+
+      if (node1Interfaces.size() == 0 || node2Interfaces.size() == 0) {
+        intfScore = (int) Math.pow(2, 24);
+        intfMap = new int[0];
+      } else {
+
+        if (node1Interfaces.size() < node2Interfaces.size()) {
+          LinkedHashMap<String, Set<Interface>> tmp = node2Interfaces;
+          node2Interfaces = node1Interfaces;
+          node1Interfaces = tmp;
+          String name = node2Name;
+          node2Name = node1Name;
+          node1Name = name;
+        }
+        double[][] weight = new double[node1Interfaces.size()][node2Interfaces.size()];
+
+        for (String n1 : node1Interfaces.keySet()) {
+          int j = 0;
+          for (String n2 : node2Interfaces.keySet()) {
+            weight[i][j] = distance(n1, n2);
+            j++;
+          }
+          i++;
+        }
+
+        HungarianAlgorithm intfMatching = new HungarianAlgorithm(weight);
+        intfMap = intfMatching.execute();
+        for (int k = 0; k < intfMap.length; k++) {
+          if (intfMap[k] != -1) {
+            intfScore = (int) (intfScore + weight[k][intfMap[k]]);
+          }
+        }
+      }
+
+      return new Pair(node1Name, node2Name, editDistance, intfMap, intfScore);
+    }
+
+    /*
+     * Given a node, its edges and the rolesMap, classify the edges based on to which role
+     * these edges connects to. The return type is a mapping from a role to the names of
+     * interfaces of the given node which connects to that role.
+     */
     private SortedMap<String, Set<String>> sortEdgesByRoles(
         SortedSet<Edge> edges, String node, SortedMap<String, SortedSet<String>> roleNodeMap) {
-      SortedMap<String, Set<String>> edgesbyroles = new TreeMap<>();
+      SortedMap<String, Set<String>> edgesByRoles = new TreeMap<>();
 
       for (String s : roleNodeMap.keySet()) {
-        edgesbyroles.put(s, new HashSet<>());
+        edgesByRoles.put(s, new HashSet<>());
       }
       if (edges != null) {
         for (Edge e : edges) {
@@ -460,42 +513,132 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
           if (!first.getHostname().equals(node)) {
             for (String s : roleNodeMap.keySet()) {
               if (roleNodeMap.get(s).contains(first.getHostname())) {
-                edgesbyroles.get(s).add(e.getInt2());
+                edgesByRoles.get(s).add(e.getInt2());
                 break;
               }
             }
           }
         }
       }
-      return edgesbyroles;
+      return edgesByRoles;
+    }
+
+    private LinkedHashMap<String, Set<Interface>> mapNeighborNamesToInterfaces(
+        SortedSet<Edge> edges, Set<Interface> interfaces, String node) {
+
+      LinkedHashMap<String, Set<Interface>> interfacesByNeighborNames = new LinkedHashMap<>();
+      if (edges != null) {
+        for (Edge e : edges) {
+          if (!e.getNode1().equals(node)) {
+            for (Interface i : interfaces) {
+              if (i.getDeclaredNames().contains(e.getInt2())) {
+                if (!interfacesByNeighborNames.containsKey(e.getNode1())) {
+                  interfacesByNeighborNames.put(e.getNode1(), new HashSet<>());
+                }
+                interfacesByNeighborNames.get(e.getNode1()).add(i);
+              }
+            }
+          }
+        }
+      }
+      return interfacesByNeighborNames;
     }
 
     @Override
     public AnswerElement answer() {
       RoleInterfaceMatchingQuestion question = (RoleInterfaceMatchingQuestion) _question;
-      Set<String> _nodes = question.getNodeRegex().getMatchingNodes(_batfish);
+      Set<String> includeNodes = question.getNodeRegex().getMatchingNodes(_batfish);
       int algorithm = question.getAlgorithm();
       NodeRoleDimension roleDimension =
           _batfish
               .getNodeRoleDimension(null)
               .orElseThrow(() -> new BatfishException("No role dimension found "));
-      SortedMap<String, SortedSet<String>> roleNodeMap = roleDimension.createRoleNodesMap(_nodes);
-      String[] nodes = _nodes.toArray(new String[_nodes.size()]);
+      SortedMap<String, SortedSet<String>> roleNodeMap =
+          roleDimension.createRoleNodesMap(includeNodes);
+      String[] nodes = includeNodes.toArray(new String[includeNodes.size()]);
       Map<String, Configuration> configurations = _batfish.loadConfigurations();
+      Topology topology = _batfish.getEnvironmentTopology();
+
       Map<String, NodeData> requiredData = new HashMap<>();
       Map<String, Set<Interface>> nodeInterface = CommonUtil.computeNodeInterfaces(configurations);
-      Topology topology = _batfish.getEnvironmentTopology();
+
       Map<String, SortedSet<Edge>> nodeEdges = topology.getNodeEdges();
       Map<String, SortedMap<String, Set<String>>> nodeEdgesByRoles = new HashMap<>();
+
+      Map<String, LinkedHashMap<String, Set<Interface>>> nodeInterfacesByNeighborName =
+          new HashMap<>();
+
       for (String hostname : nodes) {
         Configuration node = configurations.get(hostname);
         NodeData nodedata = new NodeData(interface_name_mapping(node.getInterfaces()));
         requiredData.put(hostname, nodedata);
         nodeEdgesByRoles.put(
             hostname, sortEdgesByRoles(nodeEdges.get(hostname), hostname, roleNodeMap));
+        nodeInterfacesByNeighborName.put(
+            hostname,
+            mapNeighborNamesToInterfaces(
+                nodeEdges.get(hostname), nodeInterface.get(hostname), hostname));
       }
+
       List<String> roles = new ArrayList<>(roleNodeMap.keySet());
       StringBuilder sb = new StringBuilder("Results for Interface Matching\n");
+
+      if (algorithm == 3) {
+        for (String r : roles) {
+          List<String> roleNodes = new ArrayList<>(roleNodeMap.get(r));
+          for (int k = 0; k < roleNodes.size(); k++) {
+            String node1 = roleNodes.get(k);
+            for (int l = k + 1; l < roleNodes.size(); l++) {
+              String node2 = roleNodes.get(l);
+              Pair rolePair =
+                  neighborNameMapping(
+                      nodeInterfacesByNeighborName.get(node1),
+                      nodeInterfacesByNeighborName.get(node2),
+                      node1,
+                      node2);
+              LinkedHashMap<String, Set<Interface>> node1Interfaces =
+                  nodeInterfacesByNeighborName.get(rolePair._node1);
+              LinkedHashMap<String, Set<Interface>> node2Interfaces =
+                  nodeInterfacesByNeighborName.get(rolePair._node2);
+              List<String> node1Neighbors = new ArrayList<>(node1Interfaces.keySet());
+              List<String> node2Neighbors = new ArrayList<>(node2Interfaces.keySet());
+
+              sb.append(
+                  "\nRouter1: "
+                      + rolePair._node1
+                      + "\nRouter2: "
+                      + rolePair._node2
+                      + "\nInterfaceIPScore: "
+                      + rolePair._intfScore
+                      + "\nNameEditDistance: "
+                      + rolePair._editDistance
+                      + "\n");
+
+              for (int j = 0; j < rolePair._intfMap.length; j++) {
+
+                sb.append("R1 Neighbor: " + node1Neighbors.get(j) + " -- Interfaces [");
+
+                for (Interface i : node1Interfaces.get(node1Neighbors.get(j))) {
+                  sb.append(i.getAddress().toString() + "-" + i.getDescription() + ",");
+                }
+                sb.append("]\n");
+                if (rolePair._intfMap[j] != -1) {
+                  sb.append(
+                      "R2 Neighbor: "
+                          + node2Neighbors.get(rolePair._intfMap[j])
+                          + " -- Interfaces [");
+
+                  for (Interface i :
+                      node2Interfaces.get(node2Neighbors.get(rolePair._intfMap[j]))) {
+                    sb.append(i.getAddress().toString() + "-" + i.getDescription() + ",");
+                  }
+                  sb.append("]\n");
+                }
+              }
+            }
+          }
+        }
+      }
 
       if (algorithm == 1) {
         for (String r : roles) {
@@ -558,36 +701,40 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
           sb.append(roleNodes.toString());
           sb.append("\n");
           for (int k = 0; k < roleNodes.size(); k++) {
-            String Node1 = roleNodes.get(k);
+            String node1Name = roleNodes.get(k);
             for (int l = k + 1; l < roleNodes.size(); l++) {
-              String Node2 = roleNodes.get(l);
-              Pair role_pair =
-                  mapping_from_JSON(requiredData.get(Node1), requiredData.get(Node2), Node1, Node2);
-              Map<Ip, Entry<String, String>> node1 = requiredData.get(role_pair._node1)._nodeintf;
-              Map<Ip, Entry<String, String>> node2 = requiredData.get(role_pair._node2)._nodeintf;
+              String node2Name = roleNodes.get(l);
+              Pair rolePair =
+                  IPMapping(
+                      requiredData.get(node1Name),
+                      requiredData.get(node2Name),
+                      node1Name,
+                      node2Name);
+              Map<Ip, Entry<String, String>> node1 = requiredData.get(rolePair._node1)._nodeintf;
+              Map<Ip, Entry<String, String>> node2 = requiredData.get(rolePair._node2)._nodeintf;
               List<Ip> keysN2 = new ArrayList<>(node2.keySet());
               List<Ip> keysN1 = new ArrayList<>(node1.keySet());
               sb.append(
                   "\nRouter1: "
-                      + role_pair._node1
+                      + rolePair._node1
                       + "\nRouter2: "
-                      + role_pair._node2
+                      + rolePair._node2
                       + "\nInterfaceIPScore: "
-                      + role_pair._intfScore
+                      + rolePair._intfScore
                       + "\nNameEditDistance: "
-                      + role_pair._editDistance
+                      + rolePair._editDistance
                       + "\n");
-              for (int j = 0; j < role_pair._intfMap.length; j++) {
-                if (role_pair._intfMap[j] != -1) {
+              for (int j = 0; j < rolePair._intfMap.length; j++) {
+                if (rolePair._intfMap[j] != -1) {
                   sb.append(
                       "R1:  ("
                           + keysN1.get(j)
                           + " , "
                           + node1.get(keysN1.get(j))
                           + ")\nR2:  ("
-                          + keysN2.get(role_pair._intfMap[j])
+                          + keysN2.get(rolePair._intfMap[j])
                           + " , "
-                          + node2.get(keysN2.get(role_pair._intfMap[j]))
+                          + node2.get(keysN2.get(rolePair._intfMap[j]))
                           + ")\n");
                 } else {
                   sb.append(
@@ -602,6 +749,7 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
           }
         }
       }
+
       RoleInterfaceMatchingAnswerElement answerElement =
           new RoleInterfaceMatchingAnswerElement(sb.toString());
       return answerElement;
