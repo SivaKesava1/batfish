@@ -565,6 +565,16 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
       Map<String, SortedSet<Edge>> nodeEdges = topology.getNodeEdges();
       Map<String, SortedMap<String, Set<String>>> nodeEdgesByRoles = new HashMap<>();
 
+      //      /* For printing the edges*/
+      //      for(String s: nodeEdges.keySet()){
+      //        System.out.println("\n\nNode Name:" + s);
+      //        for(Edge e: nodeEdges.get(s)){
+      //          if(e.getNode1().equals(s))
+      //            System.out.println(e.getNode1() + " :  " + e.getInt1() + " ----  " +e.getNode2()
+      // + "  : " + e.getInt2());
+      //        }
+      //      }
+
       Map<String, LinkedHashMap<String, Set<Interface>>> nodeInterfacesByNeighborName =
           new HashMap<>();
 
@@ -619,7 +629,13 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
                 sb.append("R1 Neighbor: " + node1Neighbors.get(j) + " -- Interfaces [");
 
                 for (Interface i : node1Interfaces.get(node1Neighbors.get(j))) {
-                  sb.append(i.getAddress().toString() + "-" + i.getDescription() + ",");
+                  sb.append(
+                      i.getAddress().toString()
+                          + "-"
+                          + i.getName()
+                          + "-"
+                          + i.getDescription()
+                          + ",");
                 }
                 sb.append("]\n");
                 if (rolePair._intfMap[j] != -1) {
@@ -630,7 +646,13 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
 
                   for (Interface i :
                       node2Interfaces.get(node2Neighbors.get(rolePair._intfMap[j]))) {
-                    sb.append(i.getAddress().toString() + "-" + i.getDescription() + ",");
+                    sb.append(
+                        i.getAddress().toString()
+                            + "-"
+                            + i.getName()
+                            + "-"
+                            + i.getDescription()
+                            + ",");
                   }
                   sb.append("]\n");
                 }
