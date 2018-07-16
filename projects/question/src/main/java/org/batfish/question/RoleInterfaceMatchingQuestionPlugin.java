@@ -565,15 +565,32 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
       Map<String, SortedSet<Edge>> nodeEdges = topology.getNodeEdges();
       Map<String, SortedMap<String, Set<String>>> nodeEdgesByRoles = new HashMap<>();
 
-      //      /* For printing the edges*/
-      //      for(String s: nodeEdges.keySet()){
-      //        System.out.println("\n\nNode Name:" + s);
-      //        for(Edge e: nodeEdges.get(s)){
-      //          if(e.getNode1().equals(s))
-      //            System.out.println(e.getNode1() + " :  " + e.getInt1() + " ----  " +e.getNode2()
-      // + "  : " + e.getInt2());
-      //        }
-      //      }
+//      /* For printing the edges*/
+//      for (String s : nodeEdges.keySet()) {
+//        System.out.println("\n\nNode Name:" + s);
+//        for (Edge e : nodeEdges.get(s)) {
+//          if (e.getNode1().equals(s))
+//            System.out.println(
+//                e.getNode1()
+//                    + " :  "
+//                    + e.getInt1()
+//                    + " ----  "
+//                    + e.getNode2()
+//                    + "  : "
+//                    + e.getInt2());
+//        }
+//      }
+//      SortedSet<Edge>  topologyEdges = topology.getEdges();
+//      for (Edge e : topologyEdges) {
+//          System.out.println(
+//              e.getNode1()
+//                  + " :  "
+//                  + e.getInt1()
+//                  + " ----  "
+//                  + e.getNode2()
+//                  + "  : "
+//                  + e.getInt2());
+//      }
 
       Map<String, LinkedHashMap<String, Set<Interface>>> nodeInterfacesByNeighborName =
           new HashMap<>();
