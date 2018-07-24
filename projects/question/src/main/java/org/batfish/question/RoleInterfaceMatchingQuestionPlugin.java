@@ -46,7 +46,7 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
     private String _asns;
 
     public RoleInterfaceMatchingAnswerElement(@JsonProperty(PROP_ASNS) String asns) {
-      _asns = new String(asns);
+      _asns = asns;
     }
 
     @JsonProperty(PROP_ASNS)
@@ -565,6 +565,12 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
       Map<String, SortedSet<Edge>> nodeEdges = topology.getNodeEdges();
       Map<String, SortedMap<String, Set<String>>> nodeEdgesByRoles = new HashMap<>();
 
+      for (Edge e : nodeEdges.get("bd11f1.anderson")) {
+        if (e.getNode1().equals("bd11f1.anderson")) {
+          System.out.println(e.getNode2());
+        }
+      }
+
 //      /* For printing the edges*/
 //      for (String s : nodeEdges.keySet()) {
 //        System.out.println("\n\nNode Name:" + s);
@@ -647,7 +653,7 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
 
                 for (Interface i : node1Interfaces.get(node1Neighbors.get(j))) {
                   sb.append(
-                      i.getAddress().toString()
+                      i.getAddress()
                           + "-"
                           + i.getName()
                           + "-"
@@ -664,7 +670,7 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
                   for (Interface i :
                       node2Interfaces.get(node2Neighbors.get(rolePair._intfMap[j]))) {
                     sb.append(
-                        i.getAddress().toString()
+                        i.getAddress()
                             + "-"
                             + i.getName()
                             + "-"
@@ -702,7 +708,7 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
                         sb.append(
                             interfaceName
                                 + " - "
-                                + i.getAddress().toString()
+                                + i.getAddress()
                                 + " - "
                                 + i.getDescription()
                                 + " , ");
@@ -718,7 +724,7 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
                         sb.append(
                             interfaceName
                                 + " - "
-                                + i.getAddress().toString()
+                                + i.getAddress()
                                 + " - "
                                 + i.getDescription()
                                 + " , ");
@@ -737,7 +743,7 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
         for (int i = 0; i < roles.size(); i++) {
           List<String> roleNodes = new ArrayList<>(roleNodeMap.get(roles.get(i)));
           sb.append(roles.get(i));
-          sb.append(roleNodes.toString());
+          sb.append(roleNodes);
           sb.append("\n");
           for (int k = 0; k < roleNodes.size(); k++) {
             String node1Name = roleNodes.get(k);
@@ -789,11 +795,15 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
         }
       }
 
-      RoleInterfaceMatchingAnswerElement answerElement =
-          new RoleInterfaceMatchingAnswerElement(sb.toString());
-      return answerElement;
+
+      return new RoleInterfaceMatchingAnswerElement(sb.toString());
     }
   }
+
+  //  @param-algorithm to choose between
+  // 1.Based on Neighbor Role
+  // 2.Based on Interface IP Address
+  // 3. Based on Neighbor Names Edit Distance
 
   public static class RoleInterfaceMatchingQuestion extends Question implements INodeRegexQuestion {
 

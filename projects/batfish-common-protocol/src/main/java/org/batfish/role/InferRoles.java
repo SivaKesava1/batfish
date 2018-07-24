@@ -384,7 +384,7 @@ public final class InferRoles {
     return candidateRegexes;
   }
 
-  private double computeRoleScore(String regex) {
+  public double computeRoleScore(String regex) {
 
     SortedMap<String, SortedSet<String>> nodeRolesMap = regexToNodeRolesMap(regex, _nodes);
 
