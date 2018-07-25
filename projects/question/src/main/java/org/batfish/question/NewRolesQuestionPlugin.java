@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.auto.service.AutoService;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -12,6 +13,8 @@ import java.util.SortedMap;
 import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.batfish.common.Answerer;
@@ -22,6 +25,7 @@ import org.batfish.common.plugin.Plugin;
 import org.batfish.datamodel.BgpActivePeerConfig;
 import org.batfish.datamodel.BgpProcess;
 import org.batfish.datamodel.Configuration;
+import org.batfish.datamodel.Edge;
 import org.batfish.datamodel.Vrf;
 import org.batfish.datamodel.answers.AnswerElement;
 import org.batfish.datamodel.questions.NodesSpecifier;
@@ -95,11 +99,8 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                           // Collections.singletonList(regex)
                           nodeRoleDimension)));
 
-      SortedMap<Long, SortedSet<String>> possibleBorderRouters = inferBorderNodes(borderNodes);
-
-      if(borderNodes.size()>0){
-
-      }
+      SortedMap<Long, SortedSet<String>> possibleBorderRouters =
+          inferBorderNodes(borderNodes, question.getAsNumbers());
 
       NodeRoleDimension roleDimension =
           _batfish
@@ -109,13 +110,32 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                       new BatfishException(
                           "No role dimension found for " + question.getRoleDimension()));
 
+      if (possibleBorderRouters.size() > 0) {
+        List<Set<String>> nodeHierarchy =
+            computeNodeDistances(possibleBorderRouters, new HashSet<>(nodes));
+
+        double maxSupport = 0;
+        for (Pair<Double, NodeRoleDimension> pair : supportScores) {
+          double newSupport = computeWeightedSupportScores(pair, nodeHierarchy);
+          if (newSupport > maxSupport) {
+            roleDimension = pair.getSecond();
+            maxSupport = newSupport;
+          }
+        }
+      }
+
       NewRolesAnswerElement answerElement =
           new NewRolesAnswerElement(roleDimension, roleDimension.createRoleNodesMap(nodes));
 
       return answerElement;
     }
 
-    private SortedMap<Long, SortedSet<String>> inferBorderNodes(Set<String> borderNodes) {
+    private SortedMap<Long, SortedSet<String>> inferBorderNodes(
+        Set<String> borderNodes, String asNumbers) {
+      Set<Long> asNum =
+          asNumbers != null
+              ? Arrays.stream(asNumbers.split(",")).map(Long::parseLong).collect(Collectors.toSet())
+              : new HashSet<>();
       Map<String, Configuration> configurations = _batfish.loadConfigurations();
       Set<String> copyBorderNodes = new HashSet<>(borderNodes);
       SortedMap<Long, SortedSet<String>> possibleBorderRouters = new TreeMap<>();
@@ -127,7 +147,8 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             for (BgpActivePeerConfig neighbor : proc.getActiveNeighbors().values()) {
               if (Long.compare(neighbor.getRemoteAs(), neighbor.getLocalAs()) != 0
                   & neighbor.getRemoteAs() < 64512
-                  & neighbor.getLocalAs() < 64512) {
+                  & neighbor.getLocalAs() < 64512
+                  & (!asNum.contains(neighbor.getRemoteAs()))) {
                 SortedSet<String> possible =
                     possibleBorderRouters.computeIfAbsent(
                         neighbor.getRemoteAs(), k -> new TreeSet<>());
@@ -138,10 +159,73 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
           }
         }
       }
-      if(copyBorderNodes.size() >0){
+      if (copyBorderNodes.size() > 0) {
         possibleBorderRouters.put(0L, new TreeSet<>(copyBorderNodes));
       }
       return possibleBorderRouters;
+    }
+
+    private List<Set<String>> computeNodeDistances(
+        SortedMap<Long, SortedSet<String>> borderNodes, Set<String> nodes) {
+
+      Set<String> borderNodesList =
+          borderNodes.values().stream().flatMap(SortedSet::stream).collect(Collectors.toSet());
+      nodes.removeAll(borderNodesList);
+
+      Set<String> children = computeNextLayerNodes(borderNodesList, nodes);
+      List<Set<String>> nodeHierarchy = new ArrayList<>();
+      while (children.size() != 0) {
+        nodeHierarchy.add(children);
+        children = computeNextLayerNodes(children, nodes);
+      }
+      return nodeHierarchy;
+    }
+
+    private Set<String> computeNextLayerNodes(Set<String> parents, Set<String> nodes) {
+      Map<String, SortedSet<Edge>> nodeEdges = _batfish.getEnvironmentTopology().getNodeEdges();
+      Set<String> nextLayer = new HashSet<>();
+      for (String parent : parents) {
+        SortedSet<Edge> edges = nodeEdges.get(parent);
+        for (Edge e : edges) {
+          if (!e.getNode1().equals(parent) & nodes.contains(e.getNode1())) {
+            nextLayer.add(e.getNode1());
+            nodes.remove(e.getNode1());
+          }
+        }
+      }
+      return nextLayer;
+    }
+
+    private double computeWeightedSupportScores(
+        Pair<Double, NodeRoleDimension> pair, List<Set<String>> nodeHierarchy) {
+
+      SortedMap<String, SortedSet<String>> roleNodesMap =
+          pair.getSecond()
+              .createRoleNodesMap(
+                  nodeHierarchy.stream().flatMap(Set::stream).collect(Collectors.toSet()));
+      SortedMap<String, Integer> nodeDistanceMap = new TreeMap<>();
+      IntStream.range(0, nodeHierarchy.size())
+          .forEach(
+              level ->
+                  nodeHierarchy
+                      .get(level)
+                      .forEach(nodeName -> nodeDistanceMap.put(nodeName, level + 1)));
+
+      double supportSum = 0.0;
+      for (String role : roleNodesMap.keySet()) {
+        SortedSet<String> roleNodes = roleNodesMap.get(role);
+        int count = 0;
+        for (String node1 : roleNodes) {
+          for (String node2 : roleNodes) {
+            count += nodeDistanceMap.get(node1).equals(nodeDistanceMap.get(node2)) ? 1 : 0;
+          }
+        }
+        supportSum += (double) count / (roleNodes.size() * roleNodes.size());
+      }
+      supportSum = supportSum / roleNodesMap.size();
+      double alpha =
+          (supportSum * supportSum) / (supportSum * supportSum + pair.getFirst() * pair.getFirst());
+      return alpha*pair.getFirst()*alpha*pair.getFirst()+ (1-alpha)*supportSum*(1-alpha)*supportSum;
     }
   }
 
@@ -156,6 +240,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
    *     (None).
    * @param roleDimension Which dimension to report on. The default is the primary auto-inferred
    *     one.
+   * @param asNumbers The Autonomous System numbers of the given network.
    */
   public static final class NewRolesQuestion extends Question {
 
@@ -165,18 +250,23 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
 
     private static final String PROP_BORDER_NODE_REGEX = "borderNodeRegex";
 
+    private static final String PROP_AS_NUMBERS = "asNumbers";
+
     @Nonnull private NodesSpecifier _nodeRegex;
     @Nonnull private NodesSpecifier _borderNodeRegex;
 
     @Nullable private String _roleDimension;
+    @Nullable private String _asNumbers;
 
     @JsonCreator
     public NewRolesQuestion(
         @JsonProperty(PROP_NODE_REGEX) NodesSpecifier nodeRegex,
         @JsonProperty(PROP_BORDER_NODE_REGEX) NodesSpecifier borderNodeRegex,
-        @JsonProperty(PROP_ROLE_DIMENSION) String roleDimension) {
+        @JsonProperty(PROP_ROLE_DIMENSION) String roleDimension,
+        @JsonProperty(PROP_AS_NUMBERS) String asNumbers) {
       _nodeRegex = nodeRegex == null ? NodesSpecifier.ALL : nodeRegex;
       _roleDimension = roleDimension;
+      _asNumbers = asNumbers;
       _borderNodeRegex = borderNodeRegex == null ? NodesSpecifier.NONE : borderNodeRegex;
     }
 
@@ -204,6 +294,11 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
     public String getRoleDimension() {
       return _roleDimension;
     }
+
+    @JsonProperty(PROP_AS_NUMBERS)
+    public String getAsNumbers() {
+      return _asNumbers;
+    }
   }
 
   @Override
@@ -213,6 +308,6 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
 
   @Override
   protected Question createQuestion() {
-    return new NewRolesQuestion(null, null, null);
+    return new NewRolesQuestion(null, null, null, null);
   }
 }
