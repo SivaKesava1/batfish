@@ -112,11 +112,14 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                   () ->
                       new BatfishException(
                           "No role dimension found for " + question.getRoleDimension()));
+      SortedMap<String, SortedSet<String>> defaultRoleNodeMap =
+          roleDimension.createRoleNodesMap(nodes);
 
       if (possibleBorderRouters.size() > 0) {
         List<Set<String>> nodeHierarchy =
             computeNodeDistances(possibleBorderRouters, new HashSet<>(nodes));
 
+        //Selects the best one based on the Linear combination of both Todds and Yuvals Idea.
         double maxSupport = 0;
         for (Pair<Double, NodeRoleDimension> pair : supportScores) {
           double newSupport = computeWeightedSupportScores(pair, nodeHierarchy);
@@ -125,13 +128,30 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             maxSupport = newSupport;
           }
         }
+
+        //Modifies the Role->Nodes mapping by Adding the notion of Layer to it.
+        SortedMap<String, SortedSet<String>> roleNodesMapByLayer = new TreeMap<>();
+        int i = 0;
+        for (Set<String> layer : nodeHierarchy) {
+          SortedMap<String, SortedSet<String>> roleNodesMap =
+              roleDimension.createRoleNodesMap(layer);
+          for (String role : roleNodesMap.keySet()) {
+            roleNodesMapByLayer.put("Layer " + i + " :" + role, roleNodesMap.get(role));
+          }
+          i++;
+        }
+        defaultRoleNodeMap = roleNodesMapByLayer;
       }
 
       SortedSet<String> sortedNodes = new TreeSet<>(nodes);
-      editDistanceComputation(sortedNodes);
+      double[][] distanceMatrix = editDistanceComputation(sortedNodes);
+      //      ClusteringAlgorithm alg = new DefaultClusteringAlgorithm();
+      //      Cluster cluster = alg.performClustering( editDistanceComputation(sortedNodes),
+      // sortedNodes.toArray(new String[0]),
+      //          new AverageLinkageStrategy());
 
       NewRolesAnswerElement answerElement =
-          new NewRolesAnswerElement(roleDimension, roleDimension.createRoleNodesMap(nodes));
+          new NewRolesAnswerElement(roleDimension, defaultRoleNodeMap);
 
       return answerElement;
     }
