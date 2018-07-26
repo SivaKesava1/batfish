@@ -1,5 +1,7 @@
 package org.batfish.question;
 
+import static com.google.common.primitives.Ints.max;
+
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.auto.service.AutoService;
@@ -31,6 +33,7 @@ import org.batfish.datamodel.answers.AnswerElement;
 import org.batfish.datamodel.questions.NodesSpecifier;
 import org.batfish.datamodel.questions.Question;
 import org.batfish.role.InferRoles;
+import org.batfish.role.InferRoles.PreToken;
 import org.batfish.role.NodeRoleDimension;
 
 @AutoService(Plugin.class)
@@ -124,12 +127,21 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
         }
       }
 
+      SortedSet<String> sortedNodes = new TreeSet<>(nodes);
+      editDistanceComputation(sortedNodes);
+
       NewRolesAnswerElement answerElement =
           new NewRolesAnswerElement(roleDimension, roleDimension.createRoleNodesMap(nodes));
 
       return answerElement;
     }
 
+    /*
+    Infer the border Nodes of topology using As numbers if provided else
+    use the assumption that in EBGP remote-as is different from local-as.
+    The @param borderNodes is the set provided by user.
+    This function finally returns the border routers mapped by their remote-as
+    */
     private SortedMap<Long, SortedSet<String>> inferBorderNodes(
         Set<String> borderNodes, String asNumbers) {
       Set<Long> asNum =
@@ -165,6 +177,11 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       return possibleBorderRouters;
     }
 
+    /*
+    Given the set of border routers compute the Hierarchy of Topology.
+    The hop count from the "border routers" is defined as the distance
+    from one of the border routers and is minimum
+     */
     private List<Set<String>> computeNodeDistances(
         SortedMap<Long, SortedSet<String>> borderNodes, Set<String> nodes) {
 
@@ -196,6 +213,10 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       return nextLayer;
     }
 
+    /*
+    Given a role partition from Todd's Hypothesis calculate the Edge distance metric and combine
+    them using alpha.
+    */
     private double computeWeightedSupportScores(
         Pair<Double, NodeRoleDimension> pair, List<Set<String>> nodeHierarchy) {
 
@@ -225,7 +246,86 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       supportSum = supportSum / roleNodesMap.size();
       double alpha =
           (supportSum * supportSum) / (supportSum * supportSum + pair.getFirst() * pair.getFirst());
-      return alpha*pair.getFirst()*alpha*pair.getFirst()+ (1-alpha)*supportSum*(1-alpha)*supportSum;
+      return alpha * pair.getFirst() * alpha * pair.getFirst()
+          + (1 - alpha) * supportSum * (1 - alpha) * supportSum;
+    }
+
+    // Given a set of sorted Nodes compute their Token edit Distance matrix.
+    private double[][] editDistanceComputation(SortedSet<String> nodes) {
+      SortedMap<String, List<Pair<String, PreToken>>> nameToPreTokensMap = new TreeMap<>();
+      nodes.forEach((name) -> nameToPreTokensMap.put(name, InferRoles.pretokenizeName(name)));
+      double[][] distances = new double[nodes.size()][nodes.size()];
+      int i = 0;
+      for (String node1 : nodes) {
+        int j = 0;
+        for (String node2 : nodes) {
+          distances[i][j] =
+              node1.equals(node2)
+                  ? 0
+                  : tokenDistances(nameToPreTokensMap.get(node1), nameToPreTokensMap.get(node2));
+          j++;
+        }
+        i++;
+      }
+      return distances;
+    }
+
+    /*
+    Given the list of Tokens for two nodes compute the edit distance between these two nodes.
+    Consider only the non-DIGIT+ tokens
+    For every token in Node1 find the min edit distance from all the tokens in Node2.
+    Normalize it to 1.
+    */
+    private double tokenDistances(
+        List<Pair<String, PreToken>> node1, List<Pair<String, PreToken>> node2) {
+      double sum = 0;
+      long count =
+          Long.max(
+              (node1.size()
+                  - node1
+                      .stream()
+                      .filter((pair) -> pair.getSecond().equals(PreToken.DIGIT_PLUS))
+                      .count()),
+              (node2.size()
+                  - node2
+                      .stream()
+                      .filter((pair) -> pair.getSecond().equals(PreToken.DIGIT_PLUS))
+                      .count()));
+
+      for (int i = 0; i < node1.size(); i++) {
+        double minimum = 10000;
+        if (!node1.get(i).getSecond().equals(PreToken.DIGIT_PLUS)) {
+          for (int j = 0; j < node2.size(); j++) {
+            if (!node2.get(j).getSecond().equals(PreToken.DIGIT_PLUS)) {
+              int editDistance = distance(node1.get(i).getFirst(), node2.get(j).getFirst());
+              if (minimum > editDistance) {
+                minimum =
+                    (double) editDistance
+                        / max(node1.get(i).getFirst().length(), node2.get(j).getFirst().length());
+              }
+            }
+          }
+          if (minimum != 10000) {
+            sum += minimum;
+          }
+        }
+      }
+      return sum / count;
+    }
+
+    // Edit Distance Algorithm
+    private static int distance(String s1, String s2) {
+      int edits[][] = new int[s1.length() + 1][s2.length() + 1];
+      for (int i = 0; i <= s1.length(); i++) edits[i][0] = i;
+      for (int j = 1; j <= s2.length(); j++) edits[0][j] = j;
+      for (int i = 1; i <= s1.length(); i++) {
+        for (int j = 1; j <= s2.length(); j++) {
+          int u = (s1.charAt(i - 1) == s2.charAt(j - 1) ? 0 : 1);
+          edits[i][j] =
+              Math.min(edits[i - 1][j] + 1, Math.min(edits[i][j - 1] + 1, edits[i - 1][j - 1] + u));
+        }
+      }
+      return edits[s1.length()][s2.length()];
     }
   }
 
