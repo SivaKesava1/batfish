@@ -143,5 +143,12 @@
       <artifactId>slf4j-jdk14</artifactId>
       <scope>runtime</scope>
     </dependency>
+       <!-- https://mvnrepository.com/artifact/com.apporiented/hierarchical-clustering -->
+    <dependency>
+      <groupId>com.apporiented</groupId>
+      <artifactId>hierarchical-clustering</artifactId>
+      <version>1.1.0</version>
+    </dependency>
+
   </dependencies>
 </project>

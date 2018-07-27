@@ -2,9 +2,16 @@ package org.batfish.question;
 
 import static com.google.common.primitives.Ints.max;
 
+import com.apporiented.algorithm.clustering.AverageLinkageStrategy;
+import com.apporiented.algorithm.clustering.Cluster;
+import com.apporiented.algorithm.clustering.ClusteringAlgorithm;
+import com.apporiented.algorithm.clustering.DefaultClusteringAlgorithm;
+import com.apporiented.algorithm.clustering.visualization.DendrogramPanel;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.auto.service.AutoService;
+import java.awt.BorderLayout;
+import java.awt.Color;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -19,6 +26,9 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import javax.swing.JFrame;
+import javax.swing.JPanel;
+import javax.swing.WindowConstants;
 import org.batfish.common.Answerer;
 import org.batfish.common.BatfishException;
 import org.batfish.common.Pair;
@@ -128,7 +138,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             maxSupport = newSupport;
           }
         }
-
+        
         //Modifies the Role->Nodes mapping by Adding the notion of Layer to it.
         SortedMap<String, SortedSet<String>> roleNodesMapByLayer = new TreeMap<>();
         int i = 0;
@@ -145,13 +155,31 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
 
       SortedSet<String> sortedNodes = new TreeSet<>(nodes);
       double[][] distanceMatrix = editDistanceComputation(sortedNodes);
-      //      ClusteringAlgorithm alg = new DefaultClusteringAlgorithm();
-      //      Cluster cluster = alg.performClustering( editDistanceComputation(sortedNodes),
-      // sortedNodes.toArray(new String[0]),
-      //          new AverageLinkageStrategy());
+      ClusteringAlgorithm alg = new DefaultClusteringAlgorithm();
+      Cluster cluster = alg.performClustering(distanceMatrix, sortedNodes.toArray(new String[0]),
+          new AverageLinkageStrategy());
+      DendrogramPanel dp = new DendrogramPanel();
+      dp.setModel(cluster);
+      JFrame frame = new JFrame();
+      frame.setSize(400, 300);
+      frame.setLocation(400, 300);
+      frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+      JPanel content = new JPanel();
+      frame.setContentPane(content);
+      content.setBackground(Color.red);
+      content.setLayout(new BorderLayout());
+      content.add(dp, BorderLayout.CENTER);
+      dp.setBackground(Color.WHITE);
+      dp.setLineColor(Color.BLACK);
+      dp.setScaleValueDecimals(0);
+      dp.setScaleValueInterval(1);
+      dp.setShowDistances(false);
+      dp.setModel(cluster);
+      frame.setVisible(true);
+      
 
-      NewRolesAnswerElement answerElement =
-          new NewRolesAnswerElement(roleDimension, defaultRoleNodeMap);
+      NewRolesAnswerElement answerElement = new NewRolesAnswerElement(roleDimension,
+          defaultRoleNodeMap);
 
       return answerElement;
     }
