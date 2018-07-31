@@ -28,7 +28,6 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.swing.JFrame;
 import javax.swing.JPanel;
-import javax.swing.WindowConstants;
 import org.batfish.common.Answerer;
 import org.batfish.common.BatfishException;
 import org.batfish.common.Pair;
@@ -94,6 +93,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
 
       // collect relevant border nodes in a list.
       Set<String> borderNodes = question.getBorderNodeRegex().getMatchingNodes(_batfish);
+      int algorithm = question.getAlgorithm();
 
       InferRoles infer = new InferRoles(nodes, _batfish.getEnvironmentTopology(), false);
       List<Pair<Double, NodeRoleDimension>> supportScores = new ArrayList<>();
@@ -122,64 +122,79 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                   () ->
                       new BatfishException(
                           "No role dimension found for " + question.getRoleDimension()));
-      SortedMap<String, SortedSet<String>> defaultRoleNodeMap =
-          roleDimension.createRoleNodesMap(nodes);
 
-      if (possibleBorderRouters.size() > 0) {
+
+      if (possibleBorderRouters.size() > 0 & algorithm>0) {
         List<Set<String>> nodeHierarchy =
             computeNodeDistances(possibleBorderRouters, new HashSet<>(nodes));
 
-        //Selects the best one based on the Linear combination of both Todds and Yuvals Idea.
-        double maxSupport = 0;
-        for (Pair<Double, NodeRoleDimension> pair : supportScores) {
-          double newSupport = computeWeightedSupportScores(pair, nodeHierarchy);
-          if (newSupport > maxSupport) {
-            roleDimension = pair.getSecond();
-            maxSupport = newSupport;
+        // Selects the best one based on the Linear combination of both Todds and Yuvals Idea.
+        if (algorithm == 1) {
+          double maxSupport = 0;
+          for (Pair<Double, NodeRoleDimension> pair : supportScores) {
+            double newSupport = computeWeightedSupportScores(pair, nodeHierarchy);
+            if (newSupport > maxSupport) {
+              roleDimension = pair.getSecond();
+              maxSupport = newSupport;
+            }
           }
         }
-        
-        //Modifies the Role->Nodes mapping by Adding the notion of Layer to it.
-        SortedMap<String, SortedSet<String>> roleNodesMapByLayer = new TreeMap<>();
-        int i = 0;
-        for (Set<String> layer : nodeHierarchy) {
-          SortedMap<String, SortedSet<String>> roleNodesMap =
-              roleDimension.createRoleNodesMap(layer);
-          for (String role : roleNodesMap.keySet()) {
-            roleNodesMapByLayer.put("Layer " + i + " :" + role, roleNodesMap.get(role));
-          }
-          i++;
+        //Hierarchical Clustering based on Min Edit Distances
+        if (algorithm == 2) {
+          Set<String> collect = nodeHierarchy.stream()
+              .flatMap(x -> x.stream())
+              .collect(Collectors.toSet());
+          double[][] distanceMatrix = editDistanceComputation(nodeHierarchy);
+          ClusteringAlgorithm alg = new DefaultClusteringAlgorithm();
+          Cluster cluster =
+              alg.performClustering(
+                  distanceMatrix, new TreeSet<>(collect).toArray(new String[0]), new AverageLinkageStrategy());
+          DendrogramPanel dp = new DendrogramPanel();
+          dp.setModel(cluster);
+          JFrame frame = new JFrame();
+          frame.setSize(400, 300);
+          frame.setLocation(400, 300);
+          //frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+          JPanel content = new JPanel();
+          frame.setContentPane(content);
+          content.setBackground(Color.red);
+          content.setLayout(new BorderLayout());
+          content.add(dp, BorderLayout.CENTER);
+          dp.setBackground(Color.WHITE);
+          dp.setLineColor(Color.BLACK);
+          dp.setScaleValueDecimals(0);
+          dp.setScaleValueInterval(1);
+          dp.setShowDistances(false);
+          dp.setModel(cluster);
+          frame.setVisible(true);
+          roleDimension = null;
         }
-        defaultRoleNodeMap = roleNodesMapByLayer;
+
+        if(algorithm == 3){
+          //Modifies the Role->Nodes mapping by Adding the notion of Layer to it.
+          SortedMap<String, SortedSet<String>> roleNodesMapByLayer = new TreeMap<>();
+          Set<String> nodesWithHopCount = new HashSet<>();
+          int i = 0;
+          for (Set<String> layer : nodeHierarchy) {
+            SortedMap<String, SortedSet<String>> roleNodesMap =
+                roleDimension.createRoleNodesMap(layer);
+            for (String role : roleNodesMap.keySet()) {
+              roleNodesMapByLayer.put("Layer " + i + " :" + role, roleNodesMap.get(role));
+            }
+            i++;
+            for(String node: layer){
+              nodesWithHopCount.add(i+"."+node);
+            }
+          }
+          SortedSet<NodeRoleDimension> roleDimensions1 =
+              new InferRoles(nodesWithHopCount, _batfish.getEnvironmentTopology(), false)
+                  .inferRoles();
+          System.out.println("hello");
+        }
       }
 
-      SortedSet<String> sortedNodes = new TreeSet<>(nodes);
-      double[][] distanceMatrix = editDistanceComputation(sortedNodes);
-      ClusteringAlgorithm alg = new DefaultClusteringAlgorithm();
-      Cluster cluster = alg.performClustering(distanceMatrix, sortedNodes.toArray(new String[0]),
-          new AverageLinkageStrategy());
-      DendrogramPanel dp = new DendrogramPanel();
-      dp.setModel(cluster);
-      JFrame frame = new JFrame();
-      frame.setSize(400, 300);
-      frame.setLocation(400, 300);
-      frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-      JPanel content = new JPanel();
-      frame.setContentPane(content);
-      content.setBackground(Color.red);
-      content.setLayout(new BorderLayout());
-      content.add(dp, BorderLayout.CENTER);
-      dp.setBackground(Color.WHITE);
-      dp.setLineColor(Color.BLACK);
-      dp.setScaleValueDecimals(0);
-      dp.setScaleValueInterval(1);
-      dp.setShowDistances(false);
-      dp.setModel(cluster);
-      frame.setVisible(true);
-      
-
       NewRolesAnswerElement answerElement = new NewRolesAnswerElement(roleDimension,
-          defaultRoleNodeMap);
+          roleDimension!=null ?roleDimension.createRoleNodesMap(nodes):null);
 
       return answerElement;
     }
@@ -239,6 +254,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
 
       Set<String> children = computeNextLayerNodes(borderNodesList, nodes);
       List<Set<String>> nodeHierarchy = new ArrayList<>();
+      nodeHierarchy.add(borderNodesList);
       while (children.size() != 0) {
         nodeHierarchy.add(children);
         children = computeNextLayerNodes(children, nodes);
@@ -278,7 +294,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
               level ->
                   nodeHierarchy
                       .get(level)
-                      .forEach(nodeName -> nodeDistanceMap.put(nodeName, level + 1)));
+                      .forEach(nodeName -> nodeDistanceMap.put(nodeName, level )));
 
       double supportSum = 0.0;
       for (String role : roleNodesMap.keySet()) {
@@ -299,8 +315,19 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
     }
 
     // Given a set of sorted Nodes compute their Token edit Distance matrix.
-    private double[][] editDistanceComputation(SortedSet<String> nodes) {
+    private double[][] editDistanceComputation(
+         List<Set<String>> nodeHierarchy) {
+
+      SortedMap<String, Integer> nodeDistanceMap = new TreeMap<>();
+      IntStream.range(0, nodeHierarchy.size())
+          .forEach(
+              level ->
+                  nodeHierarchy
+                      .get(level)
+                      .forEach(nodeName -> nodeDistanceMap.put(nodeName, level)));
+
       SortedMap<String, List<Pair<String, PreToken>>> nameToPreTokensMap = new TreeMap<>();
+      SortedSet<String> nodes = ((TreeMap<String, Integer>) nodeDistanceMap).navigableKeySet();
       nodes.forEach((name) -> nameToPreTokensMap.put(name, InferRoles.pretokenizeName(name)));
       double[][] distances = new double[nodes.size()][nodes.size()];
       int i = 0;
@@ -310,7 +337,9 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
           distances[i][j] =
               node1.equals(node2)
                   ? 0
-                  : tokenDistances(nameToPreTokensMap.get(node1), nameToPreTokensMap.get(node2));
+                  : nodeDistanceMap.get(node1).equals(nodeDistanceMap.get(node2))
+                      ? tokenDistances(nameToPreTokensMap.get(node1), nameToPreTokensMap.get(node2))
+                      : 1.1;
           j++;
         }
         i++;
@@ -389,6 +418,12 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
    * @param roleDimension Which dimension to report on. The default is the primary auto-inferred
    *     one.
    * @param asNumbers The Autonomous System numbers of the given network.
+   *
+   * @param algorithm The algorithm that should be used to infer Roles.
+   *                  1 - Linear Combination of name and Hop count distances.
+   *                  2 - Hierarchical Clustering Based on Min Edit Distances
+   *                  3 - First by Hop Count and then by Name partitioning.
+   *                  0 - Default Todd's best one.
    */
   public static final class NewRolesQuestion extends Question {
 
@@ -399,10 +434,11 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
     private static final String PROP_BORDER_NODE_REGEX = "borderNodeRegex";
 
     private static final String PROP_AS_NUMBERS = "asNumbers";
+    private static final String PROP_ALGORITHM = "algorithm";
 
+    @Nonnull private int _algorithm;
     @Nonnull private NodesSpecifier _nodeRegex;
     @Nonnull private NodesSpecifier _borderNodeRegex;
-
     @Nullable private String _roleDimension;
     @Nullable private String _asNumbers;
 
@@ -411,11 +447,13 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
         @JsonProperty(PROP_NODE_REGEX) NodesSpecifier nodeRegex,
         @JsonProperty(PROP_BORDER_NODE_REGEX) NodesSpecifier borderNodeRegex,
         @JsonProperty(PROP_ROLE_DIMENSION) String roleDimension,
-        @JsonProperty(PROP_AS_NUMBERS) String asNumbers) {
+        @JsonProperty(PROP_AS_NUMBERS) String asNumbers,
+        @JsonProperty(PROP_ALGORITHM) int algorithm) {
       _nodeRegex = nodeRegex == null ? NodesSpecifier.ALL : nodeRegex;
       _roleDimension = roleDimension;
       _asNumbers = asNumbers;
       _borderNodeRegex = borderNodeRegex == null ? NodesSpecifier.NONE : borderNodeRegex;
+      _algorithm = algorithm;
     }
 
     @Override
@@ -447,6 +485,11 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
     public String getAsNumbers() {
       return _asNumbers;
     }
+
+    @JsonProperty(PROP_ALGORITHM)
+    public int getAlgorithm() {
+      return _algorithm;
+    }
   }
 
   @Override
@@ -456,6 +499,6 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
 
   @Override
   protected Question createQuestion() {
-    return new NewRolesQuestion(null, null, null, null);
+    return new NewRolesQuestion(null, null, null, null,0);
   }
 }

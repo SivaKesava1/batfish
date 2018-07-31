@@ -343,12 +343,18 @@ public final class InferRoles {
             }
           }
           if ((double) numMatches / numAll >= GROUP_THRESHOLD) {
+//            if (regexTokensToRegex(regexCopy).startsWith("\\p{Digit}+\\Q.\\E")) {
+//              regexCopy.set(0, group(plus(DIGIT_REGEX)));
+//            }
             candidateRegexes.add(regexCopy);
           }
           break;
         case ALPHA_PLUS_DIGIT_PLUS:
           List<String> regexCopy2 = new ArrayList<>(_regex);
           regexCopy2.set(i, group(plus(ALPHABETIC_REGEX)) + plus(DIGIT_REGEX));
+//          if (regexTokensToRegex(regexCopy2).startsWith("\\p{Digit}+\\Q.\\E")) {
+//            regexCopy2.set(0, group(plus(DIGIT_REGEX)));
+//          }
           candidateRegexes.add(regexCopy2);
           break;
         default:
@@ -387,15 +393,24 @@ public final class InferRoles {
   public double computeRoleScore(String regex) {
 
     SortedMap<String, SortedSet<String>> nodeRolesMap = regexToNodeRolesMap(regex, _nodes);
-
+    SortedMap<String, String> oldToNewNameMap = new TreeMap<>();
+    if (regex.startsWith("\\p{Digit}+\\Q.\\E")) {
+      nodeRolesMap
+          .keySet()
+          .forEach((newName) -> oldToNewNameMap.put(newName.substring(2), newName));
+    } else {
+      nodeRolesMap.keySet().forEach((newName) -> oldToNewNameMap.put(newName, newName));
+    }
     // produce a role-level topology and the list of nodes in each edge's source role
     // that have an edge to some node in the edge's target role
     SortedMap<RoleEdge, SortedSet<String>> roleEdges = new TreeMap<>();
     for (Edge e : _topology.getEdges()) {
       String n1 = e.getNode1();
       String n2 = e.getNode2();
-      SortedSet<String> roles1 = nodeRolesMap.get(n1);
-      SortedSet<String> roles2 = nodeRolesMap.get(n2);
+      SortedSet<String> roles1 =
+          oldToNewNameMap.get(n1) != null ? nodeRolesMap.get(oldToNewNameMap.get(n1)) : null;
+      SortedSet<String> roles2 =
+          oldToNewNameMap.get(n2) != null ? nodeRolesMap.get(oldToNewNameMap.get(n2)) : null;
       if (roles1 != null && roles2 != null && roles1.size() == 1 && roles2.size() == 1) {
         String role1 = roles1.first();
         String role2 = roles2.first();
