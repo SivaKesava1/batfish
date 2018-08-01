@@ -73,14 +73,17 @@ public final class InferRoles {
   public enum PreToken {
     ALPHA_PLUS, // sequence of alphabetic characters
     DELIMITER, // sequence of non-alphanumeric characters
-    DIGIT_PLUS; // sequence of digits
+    DIGIT_PLUS, // sequence of digits
+    HOP_COUNT_SEPARATOR;
 
     public static PreToken charToPreToken(char c) {
       if (Character.isAlphabetic(c)) {
         return ALPHA_PLUS;
       } else if (Character.isDigit(c)) {
         return DIGIT_PLUS;
-      } else {
+      } else if(c == '#'){
+        return HOP_COUNT_SEPARATOR;
+      }else{
         return DELIMITER;
       }
     }
@@ -91,8 +94,8 @@ public final class InferRoles {
     ALPHA_PLUS_DIGIT_PLUS,
     ALNUM_PLUS,
     DELIMITER,
-    DIGIT_PLUS;
-
+    DIGIT_PLUS,
+    HOP_COUNT_SEPARATOR;
     public String tokenToRegex(String s) {
       switch (this) {
         case ALPHA_PLUS:
@@ -102,6 +105,7 @@ public final class InferRoles {
         case ALNUM_PLUS:
           return plus(ALPHANUMERIC_REGEX);
         case DELIMITER:
+        case HOP_COUNT_SEPARATOR:
           return Pattern.quote(s);
         case DIGIT_PLUS:
           return plus(DIGIT_REGEX);
@@ -245,6 +249,9 @@ public final class InferRoles {
         case DIGIT_PLUS:
           tokens.add(new org.batfish.common.Pair<>(chars.toString(), Token.DIGIT_PLUS));
           break;
+        case HOP_COUNT_SEPARATOR:
+          tokens.add(new Pair<>(chars.toString(), Token.HOP_COUNT_SEPARATOR));
+          break;
         default:
           throw new BatfishException("Unknown pretoken " + pt);
       }
@@ -277,6 +284,9 @@ public final class InferRoles {
           break;
         case DIGIT_PLUS:
           tokens.add(new org.batfish.common.Pair<>(chars, Token.DIGIT_PLUS));
+          break;
+        case HOP_COUNT_SEPARATOR:
+          tokens.add(new Pair<>(chars, Token.HOP_COUNT_SEPARATOR));
           break;
         default:
           throw new BatfishException("Unexpected pretoken " + pt);
@@ -343,18 +353,18 @@ public final class InferRoles {
             }
           }
           if ((double) numMatches / numAll >= GROUP_THRESHOLD) {
-//            if (regexTokensToRegex(regexCopy).startsWith("\\p{Digit}+\\Q.\\E")) {
-//              regexCopy.set(0, group(plus(DIGIT_REGEX)));
-//            }
+            if(regexCopy.contains(Pattern.quote("#"))){
+              regexCopy.set(0,group(plus(DIGIT_REGEX)));
+            }
             candidateRegexes.add(regexCopy);
           }
           break;
         case ALPHA_PLUS_DIGIT_PLUS:
           List<String> regexCopy2 = new ArrayList<>(_regex);
           regexCopy2.set(i, group(plus(ALPHABETIC_REGEX)) + plus(DIGIT_REGEX));
-//          if (regexTokensToRegex(regexCopy2).startsWith("\\p{Digit}+\\Q.\\E")) {
-//            regexCopy2.set(0, group(plus(DIGIT_REGEX)));
-//          }
+          if(regexCopy2.contains(Pattern.quote("#"))){
+            regexCopy2.set(0,group(plus(DIGIT_REGEX)));
+          }
           candidateRegexes.add(regexCopy2);
           break;
         default:
@@ -394,10 +404,14 @@ public final class InferRoles {
 
     SortedMap<String, SortedSet<String>> nodeRolesMap = regexToNodeRolesMap(regex, _nodes);
     SortedMap<String, String> oldToNewNameMap = new TreeMap<>();
-    if (regex.startsWith("\\p{Digit}+\\Q.\\E")) {
+    if (regex.contains(Pattern.quote("#"))) {
       nodeRolesMap
           .keySet()
-          .forEach((newName) -> oldToNewNameMap.put(newName.substring(2), newName));
+          .forEach(
+              (newName) ->
+                  oldToNewNameMap.put(
+                      newName.substring(2), // Assuming the hop count will be a single digit
+                      newName));
     } else {
       nodeRolesMap.keySet().forEach((newName) -> oldToNewNameMap.put(newName, newName));
     }

@@ -10,6 +10,7 @@ import com.apporiented.algorithm.clustering.visualization.DendrogramPanel;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.auto.service.AutoService;
+import com.google.common.collect.ImmutableSet;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.util.ArrayList;
@@ -24,6 +25,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.swing.JFrame;
@@ -183,13 +185,15 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             }
             i++;
             for(String node: layer){
-              nodesWithHopCount.add(i+"."+node);
+              nodesWithHopCount.add(i+"#"+node);
             }
           }
           SortedSet<NodeRoleDimension> roleDimensions1 =
               new InferRoles(nodesWithHopCount, _batfish.getEnvironmentTopology(), false)
                   .inferRoles();
-          System.out.println("hello");
+          roleDimension = roleDimensions1.stream()
+              .filter(rd -> rd.getName().equals("auto0")).collect(Collectors.toList()).get(0);
+          nodes = nodesWithHopCount;
         }
       }
 
