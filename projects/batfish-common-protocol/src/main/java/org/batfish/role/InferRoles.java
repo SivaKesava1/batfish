@@ -6,6 +6,7 @@ import com.google.common.collect.Iterables;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -455,6 +456,90 @@ public final class InferRoles {
       RoleEdge redge = roleEdgeCount.getKey();
       int count = roleEdgeCount.getValue().size();
       supportSum += (double) count / roleNodesMap.get(redge.getRole1()).size();
+    }
+    return supportSum / numEdges;
+  }
+
+  //Based on the idea of weighing by the number of edges and edge or no-edge majority.
+  public double computeRoleScoreByWeights(String regex) {
+
+    SortedMap<String, SortedSet<String>> nodeRolesMap = regexToNodeRolesMap(regex, _nodes);
+    SortedMap<String, String> oldToNewNameMap = new TreeMap<>();
+    if (regex.contains(Pattern.quote("#"))) {
+      nodeRolesMap
+          .keySet()
+          .forEach(
+              (newName) ->
+                  oldToNewNameMap.put(
+                      newName.substring(2), // TODO: Assuming the hop count will be a single digit
+                      newName));
+    } else {
+      nodeRolesMap.keySet().forEach((newName) -> oldToNewNameMap.put(newName, newName));
+    }
+    // produce a role-level topology and the list of nodes in each edge's source role
+    // that have an edge to some node in the edge's target role
+    SortedMap<RoleEdge, List<String>> roleEdges = new TreeMap<>();
+    for (Edge e : _topology.getEdges()) {
+      if (!e.getInterface1().getInterface().contains("Management")
+          & !e.getInterface2().getInterface().contains("Management")) {
+        String n1 = e.getNode1();
+        String n2 = e.getNode2();
+        SortedSet<String> roles1 =
+            oldToNewNameMap.get(n1) != null ? nodeRolesMap.get(oldToNewNameMap.get(n1)) : null;
+        SortedSet<String> roles2 =
+            oldToNewNameMap.get(n2) != null ? nodeRolesMap.get(oldToNewNameMap.get(n2)) : null;
+        if (roles1 != null && roles2 != null && roles1.size() == 1 && roles2.size() == 1) {
+          String role1 = roles1.first();
+          String role2 = roles2.first();
+          // ignore self-edges
+          if (role1.equals(role2)) {
+            continue;
+          }
+          RoleEdge redge = new RoleEdge(role1, role2);
+          List<String> roleEdgeNodes = roleEdges.getOrDefault(redge, new ArrayList<>());
+          roleEdgeNodes.add(n1);
+          roleEdges.put(redge, roleEdgeNodes);
+        }
+      }
+    }
+
+    int numEdges = roleEdges.size();
+    if (numEdges == 0) {
+      return 0.0;
+    }
+
+    // compute the "support" of each edge in the role-level topology:
+    // the percentage of nodes playing the source role that have an edge
+    // to a node in the target role.
+    // the score of this regex is then the average support across all role edges
+    SortedMap<String, SortedSet<String>> roleNodesMap = regexToRoleNodesMap(regex, _nodes);
+
+    double supportSum = 0.0;
+    for (Map.Entry<RoleEdge, List<String>> roleEdgeCount : roleEdges.entrySet()) {
+      RoleEdge redge = roleEdgeCount.getKey();
+      Map<String, Double> countMap = new HashMap<>();
+      for (String s : roleEdgeCount.getValue()) {
+        Double j = countMap.get(s);
+        countMap.put(s, (j == null) ? 1.0 : j + 1);
+      }
+      if ((double) countMap.size() / roleNodesMap.get(redge.getRole1()).size() > 0.5) {
+        double normalizedCount =
+            countMap.values().stream().mapToDouble(Double::doubleValue).sum()
+                / countMap.values().stream().max(Double::compareTo).get();
+        supportSum += normalizedCount / roleNodesMap.get(redge.getRole1()).size();
+
+      } else {
+
+        int role2Size = roleNodesMap.get(redge.getRole2()).size();
+        Double normalizedCount = 0.0;
+        for (Double edgeCount : countMap.values()) {
+          normalizedCount += (role2Size - edgeCount > 0) ? role2Size - edgeCount : 0;
+        }
+        normalizedCount +=
+            (roleNodesMap.get(redge.getRole1()).size() - countMap.size()) * role2Size;
+        normalizedCount = normalizedCount / role2Size;
+        supportSum += normalizedCount / roleNodesMap.get(redge.getRole1()).size();
+      }
     }
     return supportSum / numEdges;
   }
