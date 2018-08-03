@@ -395,7 +395,12 @@ public final class InferRoles {
         continue;
       }
       List<String> regexCopy = new ArrayList<>(tokens);
-      regexCopy.set(i, group(token));
+      if (token.contains("{Alnum}+")) {
+        regexCopy.set(i, group(plus(ALPHABETIC_REGEX)) + star(ALPHANUMERIC_REGEX));
+      } else {
+        regexCopy.set(i, group(token));
+      }
+//      regexCopy.set(i, group(token));
       candidateRegexes.add(regexCopy);
     }
     return candidateRegexes;

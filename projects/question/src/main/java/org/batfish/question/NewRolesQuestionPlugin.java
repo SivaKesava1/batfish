@@ -10,7 +10,6 @@ import com.apporiented.algorithm.clustering.visualization.DendrogramPanel;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.auto.service.AutoService;
-import com.google.common.collect.ImmutableSet;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.util.ArrayList;
@@ -25,7 +24,6 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.swing.JFrame;
@@ -43,6 +41,7 @@ import org.batfish.datamodel.Vrf;
 import org.batfish.datamodel.answers.AnswerElement;
 import org.batfish.datamodel.questions.NodesSpecifier;
 import org.batfish.datamodel.questions.Question;
+import org.batfish.question.PerRoleOutliersQuestionPlugin.PerRoleOutliersQuestion;
 import org.batfish.role.InferRoles;
 import org.batfish.role.InferRoles.PreToken;
 import org.batfish.role.NodeRoleDimension;
@@ -99,7 +98,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
 
       InferRoles infer = new InferRoles(nodes, _batfish.getEnvironmentTopology(), false);
       List<Pair<Double, NodeRoleDimension>> supportScores = new ArrayList<>();
-
+     
       infer
           .inferRoles()
           .stream()
@@ -188,12 +187,21 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
               nodesWithHopCount.add(i+"#"+node);
             }
           }
-          SortedSet<NodeRoleDimension> roleDimensions1 =
+          SortedSet<NodeRoleDimension> allRoleDimensions =
               new InferRoles(nodesWithHopCount, _batfish.getEnvironmentTopology(), false)
                   .inferRoles();
-          roleDimension = roleDimensions1.stream()
-              .filter(rd -> rd.getName().equals("auto0")).collect(Collectors.toList()).get(0);
+          roleDimension =
+              allRoleDimensions
+                  .stream()
+                  .filter(rd -> rd.getName().equals("auto0"))
+                  .collect(Collectors.toList())
+                  .get(0);
           nodes = nodesWithHopCount;
+
+          allRoleDimensions.addAll(
+              supportScores.stream().map((v) -> v.getSecond()).collect(Collectors.toSet()));
+
+          PerRoleOutliersQuestion innerQ = new PerRoleOutliersQuestion(null, null, null, null);
         }
       }
 
@@ -271,10 +279,12 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       Set<String> nextLayer = new HashSet<>();
       for (String parent : parents) {
         SortedSet<Edge> edges = nodeEdges.get(parent);
-        for (Edge e : edges) {
-          if (!e.getNode1().equals(parent) & nodes.contains(e.getNode1())) {
-            nextLayer.add(e.getNode1());
-            nodes.remove(e.getNode1());
+        if (edges!=null) {
+          for (Edge e : edges) {
+            if (!e.getNode1().equals(parent) & nodes.contains(e.getNode1())) {
+              nextLayer.add(e.getNode1());
+              nodes.remove(e.getNode1());
+            }
           }
         }
       }
