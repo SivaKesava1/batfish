@@ -368,6 +368,11 @@ public final class InferRoles {
           }
           candidateRegexes.add(regexCopy2);
           break;
+        case HOP_COUNT_SEPARATOR:
+          List<String> regexCopy3 = new ArrayList<>(_regex);
+          regexCopy3.set(0, group(plus(DIGIT_REGEX)));
+          candidateRegexes.add(regexCopy3);
+          break;
         default:
           break;
       }
