@@ -201,6 +201,43 @@ public final class InferRoles {
     return allDims;
   }
 
+  public SortedSet<NodeRoleDimension> inferCommonRoleHypothesis() {
+
+    if (_nodes.isEmpty()) {
+      return ImmutableSortedSet.of();
+    }
+
+    boolean commonRegexFound = inferCommonRegex(_nodes);
+
+    if (!commonRegexFound) {
+      return ImmutableSortedSet.of();
+    }
+
+    // find the possible candidates that have a single role group
+    List<List<String>> initialCandidateRegexes = possibleRoleGroups();
+    if (initialCandidateRegexes.isEmpty()) {
+      return ImmutableSortedSet.of();
+    }
+    List<List<String>> allCandidateRegexes = new ArrayList<>();
+    allCandidateRegexes.addAll(initialCandidateRegexes);
+    allCandidateRegexes.addAll(initialCandidateRegexes);
+    while (true) {
+      List<List<String>> newCandidateRegexes = new ArrayList<>();
+      for (List<String> candidate : initialCandidateRegexes) {
+        newCandidateRegexes.addAll(
+            possibleSecondRoleGroups(candidate).stream().distinct().collect(Collectors.toList()));
+      }
+      initialCandidateRegexes =
+          newCandidateRegexes.stream().distinct().collect(Collectors.toList());
+      allCandidateRegexes.addAll(initialCandidateRegexes);
+      if (initialCandidateRegexes.size() == 0) {
+        break;
+      }
+    }
+    allCandidateRegexes = allCandidateRegexes.stream().distinct().collect(Collectors.toList());
+    return createRoleDimensions(allCandidateRegexes);
+  }
+
   // try to identify a regex that most node names match
   private boolean inferCommonRegex(Collection<String> nodes) {
     for (int attempts = 0; attempts < 10; attempts++) {
@@ -405,7 +442,7 @@ public final class InferRoles {
       } else {
         regexCopy.set(i, group(token));
       }
-//      regexCopy.set(i, group(token));
+      //regexCopy.set(i, group(token));
       candidateRegexes.add(regexCopy);
     }
     return candidateRegexes;

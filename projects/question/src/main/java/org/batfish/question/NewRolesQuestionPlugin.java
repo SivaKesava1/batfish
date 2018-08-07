@@ -40,6 +40,7 @@ import org.batfish.datamodel.Configuration;
 import org.batfish.datamodel.Edge;
 import org.batfish.datamodel.Vrf;
 import org.batfish.datamodel.answers.AnswerElement;
+import org.batfish.datamodel.collections.OutlierSet;
 import org.batfish.datamodel.questions.NodesSpecifier;
 import org.batfish.datamodel.questions.Question;
 import org.batfish.question.OutliersQuestionPlugin.OutliersAnswerElement;
@@ -98,24 +99,6 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       // collect relevant border nodes in a list.
       Set<String> borderNodes = question.getBorderNodeRegex().getMatchingNodes(_batfish);
       int algorithm = question.getAlgorithm();
-
-      InferRoles infer = new InferRoles(nodes, _batfish.getEnvironmentTopology(), false);
-      List<Pair<Double, NodeRoleDimension>> supportScores = new ArrayList<>();
-
-      infer
-          .inferRoles()
-          .stream()
-          .forEach(
-              (nodeRoleDimension) ->
-                  supportScores.add(
-                      new Pair<>(
-                          infer.computeRoleScore(
-                              nodeRoleDimension
-                                  .getRoleRegexes()
-                                  .get(0)), // We consider only the first since its created as -
-                          // Collections.singletonList(regex)
-                          nodeRoleDimension)));
-
       SortedMap<Long, SortedSet<String>> possibleBorderRouters =
           inferBorderNodes(borderNodes, question.getAsNumbers());
 
@@ -128,11 +111,26 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                           "No role dimension found for " + question.getRoleDimension()));
 
       if (possibleBorderRouters.size() > 0 & algorithm > 0) {
+
         List<Set<String>> nodeHierarchy =
             computeNodeDistances(possibleBorderRouters, new HashSet<>(nodes));
-
         // Selects the best one based on the Linear combination of both Todds and Yuvals Idea.
         if (algorithm == 1) {
+          List<Pair<Double, NodeRoleDimension>> supportScores = new ArrayList<>();
+          InferRoles infer = new InferRoles(nodes, _batfish.getEnvironmentTopology(), false);
+          infer
+              .inferRoles()
+              .stream()
+              .forEach(
+                  (nodeRoleDimension) ->
+                      supportScores.add(
+                          new Pair<>(
+                              infer.computeRoleScore(
+                                  nodeRoleDimension
+                                      .getRoleRegexes()
+                                      .get(0)), // We consider only the first since its created as -
+                              // Collections.singletonList(regex)
+                              nodeRoleDimension)));
           double maxSupport = 0;
           for (Pair<Double, NodeRoleDimension> pair : supportScores) {
             double newSupport = computeWeightedSupportScores(pair, nodeHierarchy);
@@ -190,10 +188,10 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
               nodesWithHopCount.add(i + "#" + node);
             }
           }
-          SortedSet<NodeRoleDimension> allHopCountRoleDimensions =
-              new InferRoles(nodesWithHopCount, _batfish.getEnvironmentTopology(), false)
-                  .inferRoles();
           if (algorithm == 3) {
+            SortedSet<NodeRoleDimension> allHopCountRoleDimensions =
+                new InferRoles(nodesWithHopCount, _batfish.getEnvironmentTopology(), false)
+                    .inferRoles();
             roleDimension =
                 allHopCountRoleDimensions
                     .stream()
@@ -203,11 +201,17 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             nodes = nodesWithHopCount;
           } else {
             roleDimension = null;
+            SortedSet<NodeRoleDimension> allHopCountRoleDimensions =
+                new InferRoles(nodesWithHopCount, _batfish.getEnvironmentTopology(), false)
+                    .inferCommonRoleHypothesis();
             outliersByPartition(
                 allHopCountRoleDimensions.stream().collect(Collectors.toList()), nodesWithHopCount);
+            SortedSet<NodeRoleDimension> allCommonRoleDimensions =
+                new InferRoles(nodes, _batfish.getEnvironmentTopology(), false)
+                    .inferCommonRoleHypothesis();
             outliersByPartition(
-                supportScores.stream().map((v) -> v.getSecond()).collect(Collectors.toList()),
-                nodes);
+                allCommonRoleDimensions.stream().collect(Collectors.toList()), nodes);
+            outliersByPartition(null,nodes);
           }
         }
       }
@@ -223,19 +227,36 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
     private void outliersByPartition(List<NodeRoleDimension> allPartitions, Set<String> nodes) {
       OutliersQuestion innerQ = new OutliersQuestionPlugin().createQuestion();
       innerQ.setNamedStructTypes(new TreeSet<>());
-      innerQ.setHypothesis(OutliersHypothesis.SAME_DEFINITION);
+      innerQ.setHypothesis(OutliersHypothesis.SAME_SERVERS);
       OutliersQuestionPlugin innerPlugin = new OutliersQuestionPlugin();
+      if (allPartitions != null) {
+        for (NodeRoleDimension partition : allPartitions) {
+          /*System.out.print(
+          new NewRolesAnswerElement(partition, partition.createRoleNodesMap(nodes))
+              .prettyPrint());*/
+          SortedMap<String, SortedSet<String>> roleNodesMap = partition.createRoleNodesMap(nodes);
+          for (Map.Entry<String, SortedSet<String>> roleNodes : roleNodesMap.entrySet()) {
+            innerQ.setNodeRegex(new NodesSpecifier(namesToRegex(roleNodes.getValue())));
+            OutliersAnswerElement answer = innerPlugin.createAnswerer(innerQ, _batfish).answer();
+            // System.out.print(answer.prettyPrint());
+            printHelper(answer, roleNodes.getKey());
+          }
+          System.out.println("------------------------------------------------------------------");
+        }
+      } else {
+        innerQ.setNodeRegex(new NodesSpecifier(namesToRegex(nodes)));
+        OutliersAnswerElement answer = innerPlugin.createAnswerer(innerQ, _batfish).answer();
+        printHelper(answer, "Single Role");
+      }
+    }
 
-      for (NodeRoleDimension partition : allPartitions) {
-        System.out.print(
-            new NewRolesAnswerElement(partition, partition.createRoleNodesMap(nodes))
-                .prettyPrint());
-        SortedMap<String, SortedSet<String>> roleNodesMap = partition.createRoleNodesMap(nodes);
-        for (Map.Entry<String,SortedSet<String> >roleNodes : roleNodesMap.entrySet()) {
-          System.out.println("For Role: "+roleNodes.getKey());
-          innerQ.setNodeRegex(new NodesSpecifier(namesToRegex(roleNodes.getValue())));
-          OutliersAnswerElement answer = innerPlugin.createAnswerer(innerQ, _batfish).answer();
-          System.out.print(answer.prettyPrint());
+    private void printHelper(OutliersAnswerElement answer, String role) {
+      if (answer.getServerOutliers().size() > 0) {
+        System.out.println("For Role : " + role);
+        for (OutlierSet<?> outlier : answer.getServerOutliers()) {
+          // System.out.print("  Hypothesis: every node should have the following set of ");
+          System.out.print(outlier.getName() + " --");
+          System.out.println(outlier.getOutliers().size() + "/" + outlier.getConformers().size());
         }
       }
     }
@@ -474,9 +495,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
    *                  1 - Linear Combination of name and Hop count distances.
    *                  2 - Hierarchical Clustering Based on Min Edit Distances.
    *                  3 - First by Hop Count and then by Name partitioning.
-   *                  4 - Outliers.g
-   *                  0 - Default Todd's best one.
-   *
+   *                  4 - Outliers.g 0 - Default Todd's best one.
    */
   public static final class NewRolesQuestion extends Question {
 
