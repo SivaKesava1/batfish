@@ -120,7 +120,6 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
           InferRoles infer = new InferRoles(nodes, _batfish.getEnvironmentTopology(), false);
           infer
               .inferRoles()
-              .stream()
               .forEach(
                   (nodeRoleDimension) ->
                       supportScores.add(
@@ -174,15 +173,9 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
 
         if (algorithm == 3 | algorithm == 4) {
           // Modifies the Role->Nodes mapping by Adding the notion of Layer to it.
-          SortedMap<String, SortedSet<String>> roleNodesMapByLayer = new TreeMap<>();
           Set<String> nodesWithHopCount = new HashSet<>();
           int i = 0;
           for (Set<String> layer : nodeHierarchy) {
-            SortedMap<String, SortedSet<String>> roleNodesMap =
-                roleDimension.createRoleNodesMap(layer);
-            for (String role : roleNodesMap.keySet()) {
-              roleNodesMapByLayer.put("Layer " + i + " :" + role, roleNodesMap.get(role));
-            }
             i++;
             for (String node : layer) {
               nodesWithHopCount.add(i + "#" + node);
@@ -204,14 +197,14 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             SortedSet<NodeRoleDimension> allHopCountRoleDimensions =
                 new InferRoles(nodesWithHopCount, _batfish.getEnvironmentTopology(), false)
                     .inferCommonRoleHypothesis();
-            outliersByPartition(
-                allHopCountRoleDimensions.stream().collect(Collectors.toList()), nodesWithHopCount);
+            List<SortedMap<String, OutliersAnswerElement>> allPartitionOutliers =
+                outliersByPartition(new ArrayList<>(allHopCountRoleDimensions), nodesWithHopCount);
             SortedSet<NodeRoleDimension> allCommonRoleDimensions =
                 new InferRoles(nodes, _batfish.getEnvironmentTopology(), false)
                     .inferCommonRoleHypothesis();
-            outliersByPartition(
-                allCommonRoleDimensions.stream().collect(Collectors.toList()), nodes);
-            outliersByPartition(null,nodes);
+            allPartitionOutliers.addAll(
+                outliersByPartition(new ArrayList<>(allCommonRoleDimensions), nodes));
+            allPartitionOutliers.addAll(outliersByPartition(null, nodes));
           }
         }
       }
@@ -224,30 +217,42 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       return answerElement;
     }
 
-    private void outliersByPartition(List<NodeRoleDimension> allPartitions, Set<String> nodes) {
+    private List<SortedMap<String, OutliersAnswerElement>> outliersByPartition(
+        List<NodeRoleDimension> allPartitions, Set<String> nodes) {
       OutliersQuestion innerQ = new OutliersQuestionPlugin().createQuestion();
       innerQ.setNamedStructTypes(new TreeSet<>());
       innerQ.setHypothesis(OutliersHypothesis.SAME_SERVERS);
+      innerQ.setVerbose(true);
       OutliersQuestionPlugin innerPlugin = new OutliersQuestionPlugin();
+      List<SortedMap<String, OutliersAnswerElement>> allPartitionOutliers = new ArrayList<>();
       if (allPartitions != null) {
         for (NodeRoleDimension partition : allPartitions) {
           /*System.out.print(
           new NewRolesAnswerElement(partition, partition.createRoleNodesMap(nodes))
               .prettyPrint());*/
+          SortedMap<String, OutliersAnswerElement> outliersByRoleForPartition = new TreeMap<>();
           SortedMap<String, SortedSet<String>> roleNodesMap = partition.createRoleNodesMap(nodes);
           for (Map.Entry<String, SortedSet<String>> roleNodes : roleNodesMap.entrySet()) {
             innerQ.setNodeRegex(new NodesSpecifier(namesToRegex(roleNodes.getValue())));
             OutliersAnswerElement answer = innerPlugin.createAnswerer(innerQ, _batfish).answer();
-            // System.out.print(answer.prettyPrint());
-            printHelper(answer, roleNodes.getKey());
+            outliersByRoleForPartition.put(roleNodes.getKey(), answer);
+            System.out.println("For Role : " + roleNodes.getKey());
+            System.out.print(answer.prettyPrint());
+            // printHelper(answer, roleNodes.getKey());
           }
+          allPartitionOutliers.add(outliersByRoleForPartition);
           System.out.println("------------------------------------------------------------------");
         }
       } else {
         innerQ.setNodeRegex(new NodesSpecifier(namesToRegex(nodes)));
         OutliersAnswerElement answer = innerPlugin.createAnswerer(innerQ, _batfish).answer();
-        printHelper(answer, "Single Role");
+        System.out.print(answer.prettyPrint());
+        // printHelper(answer, "Single Role");
+        SortedMap<String, OutliersAnswerElement> outliersByRoleForPartition = new TreeMap<>();
+        outliersByRoleForPartition.put("Single Role",answer);
+        allPartitionOutliers.add(outliersByRoleForPartition);
       }
+      return allPartitionOutliers;
     }
 
     private void printHelper(OutliersAnswerElement answer, String role) {
