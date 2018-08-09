@@ -17,6 +17,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.SortedSet;
@@ -194,17 +195,25 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             nodes = nodesWithHopCount;
           } else {
             roleDimension = null;
-            SortedSet<NodeRoleDimension> allHopCountRoleDimensions =
-                new InferRoles(nodesWithHopCount, _batfish.getEnvironmentTopology(), false)
-                    .inferCommonRoleHypothesis();
+            List<NodeRoleDimension> allHopCountRoleDimensions =
+                new ArrayList<>(
+                    new InferRoles(nodesWithHopCount, _batfish.getEnvironmentTopology(), false)
+                        .inferCommonRoleHypothesis());
+            List<NodeRoleDimension> allCommonRoleDimensions =
+                new ArrayList<>(
+                    new InferRoles(nodes, _batfish.getEnvironmentTopology(), false)
+                        .inferCommonRoleHypothesis());
             List<SortedMap<String, OutliersAnswerElement>> allPartitionOutliers =
-                outliersByPartition(new ArrayList<>(allHopCountRoleDimensions), nodesWithHopCount);
-            SortedSet<NodeRoleDimension> allCommonRoleDimensions =
-                new InferRoles(nodes, _batfish.getEnvironmentTopology(), false)
-                    .inferCommonRoleHypothesis();
-            allPartitionOutliers.addAll(
-                outliersByPartition(new ArrayList<>(allCommonRoleDimensions), nodes));
-            allPartitionOutliers.addAll(outliersByPartition(null, nodes));
+                outliersByPartition(allHopCountRoleDimensions, nodesWithHopCount);
+            allPartitionOutliers.addAll(outliersByPartition(allCommonRoleDimensions, nodes));
+            allPartitionOutliers.addAll(outliersByPartition(null,nodes));
+            List<SortedMap<String, SortedSet<String>>> roleNodemap = new ArrayList<>();
+            allHopCountRoleDimensions.forEach(
+                (nd) -> roleNodemap.add(nd.createRoleNodesMap(nodesWithHopCount)));
+            Set<String> finalNodes = nodes;
+            allCommonRoleDimensions.forEach(
+                (nd) -> roleNodemap.add(nd.createRoleNodesMap(finalNodes)));
+            serversAnalysis(allPartitionOutliers, roleNodemap);
           }
         }
       }
@@ -236,8 +245,8 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             innerQ.setNodeRegex(new NodesSpecifier(namesToRegex(roleNodes.getValue())));
             OutliersAnswerElement answer = innerPlugin.createAnswerer(innerQ, _batfish).answer();
             outliersByRoleForPartition.put(roleNodes.getKey(), answer);
-            System.out.println("For Role : " + roleNodes.getKey());
-            System.out.print(answer.prettyPrint());
+             System.out.println("For Role : " + roleNodes.getKey());
+             System.out.print(answer.prettyPrint());
             // printHelper(answer, roleNodes.getKey());
           }
           allPartitionOutliers.add(outliersByRoleForPartition);
@@ -246,10 +255,10 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       } else {
         innerQ.setNodeRegex(new NodesSpecifier(namesToRegex(nodes)));
         OutliersAnswerElement answer = innerPlugin.createAnswerer(innerQ, _batfish).answer();
-        System.out.print(answer.prettyPrint());
+         System.out.print(answer.prettyPrint());
         // printHelper(answer, "Single Role");
         SortedMap<String, OutliersAnswerElement> outliersByRoleForPartition = new TreeMap<>();
-        outliersByRoleForPartition.put("Single Role",answer);
+        outliersByRoleForPartition.put("Single Role", answer);
         allPartitionOutliers.add(outliersByRoleForPartition);
       }
       return allPartitionOutliers;
@@ -264,6 +273,50 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
           System.out.println(outlier.getOutliers().size() + "/" + outlier.getConformers().size());
         }
       }
+    }
+
+    private SortedMap<String, StringBuilder> serversAnalysis(
+        List<SortedMap<String, OutliersAnswerElement>> allPartitionOutliers,
+        List<SortedMap<String, SortedSet<String>>> roleNodemap) {
+
+      SortedMap<String, StringBuilder> dnsNodeMap = new TreeMap<>();
+      SortedMap<String, String> ntpNodeMap = new TreeMap<>();
+      SortedMap<String, String> loggingNodeMap = new TreeMap<>();
+      SortedMap<String, String> tacacsNodeMap = new TreeMap<>();
+      SortedMap<String, String> snmpNodeMap = new TreeMap<>();
+
+      for (int i = 0; i < allPartitionOutliers.size() - 1; i++) {
+        for (Entry<String, OutliersAnswerElement> entry : allPartitionOutliers.get(i).entrySet()) {
+          for (OutlierSet<?> outlier : entry.getValue().getServerOutliers()) {
+            SortedSet<String> outlierNodes = outlier.getOutliers();
+            SortedSet<String> conformers = outlier.getConformers();
+            if (outlier.getName().equals("DnsServers")) {
+              if (conformers.size() >= 0.8 * (conformers.size() + outlierNodes.size())) {
+                for (String node : conformers) {
+                  dnsNodeMap.put(node,dnsNodeMap.getOrDefault(node, new StringBuilder()).append(",C"));
+                }
+                if (outlierNodes.size() < 10) {
+                  for (String node : outlierNodes) {
+                    dnsNodeMap.put(node,dnsNodeMap.getOrDefault(node, new StringBuilder()).append(",O"));
+                  }
+                } else {
+                  for (String node : outlierNodes) {
+                    dnsNodeMap.put(node,dnsNodeMap.getOrDefault(node, new StringBuilder()).append(",N"));
+                  }
+                }
+              } else {
+                for (String node : conformers) {
+                  dnsNodeMap.put(node,dnsNodeMap.getOrDefault(node, new StringBuilder()).append(",N"));
+                }
+                for (String node : outlierNodes) {
+                  dnsNodeMap.put(node,dnsNodeMap.getOrDefault(node, new StringBuilder()).append(",N"));
+                }
+              }
+            }
+          }
+        }
+      }
+      return dnsNodeMap;
     }
 
     // create a regex that matches exactly the given set of names
@@ -496,11 +549,10 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
    * @param roleDimension Which dimension to report on. The default is the primary auto-inferred
    *     one.
    * @param asNumbers The Autonomous System numbers of the given network.
-   * @param algorithm The algorithm that should be used to infer Roles.
-   *                  1 - Linear Combination of name and Hop count distances.
-   *                  2 - Hierarchical Clustering Based on Min Edit Distances.
-   *                  3 - First by Hop Count and then by Name partitioning.
-   *                  4 - Outliers.g 0 - Default Todd's best one.
+   * @param algorithm The algorithm that should be used to infer Roles. 1 - Linear Combination of
+   *     name and Hop count distances. 2 - Hierarchical Clustering Based on Min Edit Distances. 3 -
+   *     First by Hop Count and then by Name partitioning. 4 - Outliers.g 0 - Default Todd's best
+   *     one.
    */
   public static final class NewRolesQuestion extends Question {
 
