@@ -101,10 +101,10 @@ public class OutliersQuestionPlugin extends QuestionPlugin {
           default:
             throw new BatfishException("Unexpected hypothesis" + outlier.getHypothesis());
         }
-        sb.append("  Outliers: ");
-        sb.append(outlier.getOutliers() + "\n");
-        sb.append("  Conformers: ");
-        sb.append(outlier.getConformers() + "\n\n");
+//        sb.append("  Outliers: ");
+//        sb.append(outlier.getOutliers() + "\n");
+//        sb.append("  Conformers: ");
+//        sb.append(outlier.getConformers() + "\n\n");
       }
       return sb.toString();
     }
@@ -132,7 +132,7 @@ public class OutliersQuestionPlugin extends QuestionPlugin {
 
     // only report outliers that represent this percentage or less of
     // the total number of nodes
-    private static double OUTLIERS_THRESHOLD = 0.34;
+    private static double OUTLIERS_THRESHOLD = 0.1;
 
     // if this flag is true, report all outliers, even those that exceed the threshold above,
     // and including situations when there are zero outliers
