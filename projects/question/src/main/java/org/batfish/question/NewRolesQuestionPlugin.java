@@ -215,7 +215,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             Set<String> finalNodes = nodes;
             allCommonRoleDimensions.forEach(
                 (nd) -> allPartitioningRoleNodeMap.add(nd.createRoleNodesMap(finalNodes)));
-            //serversAnalysis(allPartitioningOutliers, allPartitioningRoleNodeMap,finalNodes);
+            serversAnalysis(allPartitioningOutliers, allPartitioningRoleNodeMap,finalNodes,"DnsServers");
           }
         }
       }
@@ -236,7 +236,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
         List<NodeRoleDimension> allPartitions, Set<String> nodes) {
       OutliersQuestion innerQ = new OutliersQuestionPlugin().createQuestion();
       innerQ.setNamedStructTypes(new TreeSet<>());
-      innerQ.setHypothesis(OutliersHypothesis.SAME_DEFINITION);
+      innerQ.setHypothesis(OutliersHypothesis.SAME_SERVERS);
 //      innerQ.setVerbose(true);
       OutliersQuestionPlugin innerPlugin = new OutliersQuestionPlugin();
       List<SortedMap<String, OutliersAnswerElement>> allPartitioningOutliers = new ArrayList<>();
@@ -251,9 +251,11 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             innerQ.setNodeRegex(new NodesSpecifier(namesToRegex(roleNodes.getValue())));
             OutliersAnswerElement answer = innerPlugin.createAnswerer(innerQ, _batfish).answer();
             outliersByRoleForAPartitioning.put(roleNodes.getKey(), answer);
-            System.out.println("For Role : " + roleNodes.getKey());
-            System.out.print(answer.prettyPrint());
-            // printHelper(answer, roleNodes.getKey());
+//            if(answer.getServerOutliers().size()>0){
+//              System.out.println("For Role : " + roleNodes.getKey());
+//            }
+//            System.out.print(answer.prettyPrint());
+             printHelper(answer, roleNodes.getKey());
           }
           allPartitioningOutliers.add(outliersByRoleForAPartitioning);
           System.out.println("------------------------------------------------------------------");
@@ -272,11 +274,11 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
 
     private void printHelper(OutliersAnswerElement answer, String role) {
       if (answer.getServerOutliers().size() > 0) {
-        System.out.println("For Role : " + role);
+        System.out.print("\n/For Role : " + role+",");
         for (OutlierSet<?> outlier : answer.getServerOutliers()) {
           // System.out.print("  Hypothesis: every node should have the following set of ");
           System.out.print(outlier.getName() + " --");
-          System.out.println(outlier.getOutliers().size() + "/" + outlier.getConformers().size());
+          System.out.print(outlier.getOutliers().size() + "/" + outlier.getConformers().size()+",");
         }
       }
     }
@@ -284,17 +286,12 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
     private SortedMap<String, StringBuilder> serversAnalysis(
         List<SortedMap<String, OutliersAnswerElement>> allPartitionOutliers,
         List<SortedMap<String, SortedSet<String>>> roleNodemap,
-        Set<String> nodes) {
+        Set<String> nodes, String server) {
 
-      SortedMap<String, StringBuilder> dnsNodeMap = new TreeMap<>();
-      SortedMap<String, String> ntpNodeMap = new TreeMap<>();
-      SortedMap<String, String> loggingNodeMap = new TreeMap<>();
-      SortedMap<String, String> tacacsNodeMap = new TreeMap<>();
-      SortedMap<String, String> snmpNodeMap = new TreeMap<>();
-
+      SortedMap<String, StringBuilder> serverNodeCONMap = new TreeMap<>();
       String initial = new String(new char[allPartitionOutliers.size()]).replace("\0", ",-");
       for (String node : nodes) {
-        dnsNodeMap.put(node, new StringBuilder(initial));
+        serverNodeCONMap.put(node, new StringBuilder(initial));
       }
 
       for (int i = 0; i < allPartitionOutliers.size(); i++) {
@@ -305,31 +302,31 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
           for (OutlierSet<?> outlier : entry.getValue().getServerOutliers()) {
             SortedSet<String> outlierNodes = outlier.getOutliers();
             SortedSet<String> conformers = outlier.getConformers();
-            if (outlier.getName().equals("DnsServers")) {
+            if (outlier.getName().equals(server)) {
               if (conformers.size() >= 0.8 * (conformers.size() + outlierNodes.size())) {
                 numberofConformers += conformers.size();
                 for (String node : conformers) {
-                  dnsNodeMap.put(
+                  serverNodeCONMap.put(
                       node,
-                      dnsNodeMap
+                      serverNodeCONMap
                           .getOrDefault(node, new StringBuilder())
                           .replace(i * 2 + 1, i * 2 + 2, "C"));
                 }
                 if (outlierNodes.size() < 10) {
                   numberofOutliers += outlierNodes.size();
                   for (String node : outlierNodes) {
-                    dnsNodeMap.put(
+                    serverNodeCONMap.put(
                         node,
-                        dnsNodeMap
+                        serverNodeCONMap
                             .getOrDefault(node, new StringBuilder())
                             .replace(i * 2 + 1, i * 2 + 2, "O"));
                   }
                 } else {
                   numberofNI += outlierNodes.size();
                   for (String node : outlierNodes) {
-                    dnsNodeMap.put(
+                    serverNodeCONMap.put(
                         node,
-                        dnsNodeMap
+                        serverNodeCONMap
                             .getOrDefault(node, new StringBuilder())
                             .replace(i * 2 + 1, i * 2 + 2, "N"));
                   }
@@ -338,16 +335,16 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                 numberofNI += outlierNodes.size();
                 numberofNI += conformers.size();
                 for (String node : conformers) {
-                  dnsNodeMap.put(
+                  serverNodeCONMap.put(
                       node,
-                      dnsNodeMap
+                      serverNodeCONMap
                           .getOrDefault(node, new StringBuilder())
                           .replace(i * 2 + 1, i * 2 + 2, "N"));
                 }
                 for (String node : outlierNodes) {
-                  dnsNodeMap.put(
+		  serverNodeCONMap.put(
                       node,
-                      dnsNodeMap
+                      serverNodeCONMap
                           .getOrDefault(node, new StringBuilder())
                           .replace(i * 2 + 1, i * 2 + 2, "N"));
                 }
@@ -355,16 +352,17 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             }
           }
         }
-        System.out.print("Partition#  "+(i+1));
-        System.out.print("Conformers = "+numberofConformers);
-        System.out.print("Outliers = "+numberofOutliers);
-        System.out.println("No Information = "+numberofNI);
+
+//        System.out.print("Partition#  "+(i+1));
+//        System.out.print("Conformers = "+numberofConformers);
+//        System.out.print("Outliers = "+numberofOutliers);
+//        System.out.println("No Information = "+numberofNI);
 
       }
-//      for (Entry<String, StringBuilder> entry : dnsNodeMap.entrySet()) {
+//      for (Entry<String, StringBuilder> entry : serverNodeCONMap.entrySet()) {
 //        System.out.println(entry.getKey() + entry.getValue());
 //      }
-      return dnsNodeMap;
+      return serverNodeCONMap;
     }
 
     /* create a regex that matches exactly the given set of names.
