@@ -14,15 +14,20 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.NavigableSet;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -102,7 +107,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       int algorithm = question.getAlgorithm();
       SortedMap<Long, SortedSet<String>> possibleBorderRouters =
           inferBorderNodes(borderNodes, question.getAsNumbers());
-      //Default output when no Algorithm is specified
+      // Default output when no Algorithm is specified
       NodeRoleDimension roleDimension =
           _batfish
               .getNodeRoleDimension(question.getRoleDimension())
@@ -203,19 +208,32 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                 new ArrayList<>(
                     new InferRoles(nodes, _batfish.getEnvironmentTopology(), false)
                         .inferCommonRoleHypothesis());
+            //
+            //            List<SortedMap<String, OutliersAnswerElement>> allPartitioningOutliers =
+            //                outliersByPartition(allHopCountRoleDimensions, nodesWithHopCount);
+            //
+            // allPartitioningOutliers.addAll(outliersByPartition(allCommonRoleDimensions, nodes));
+            //            allPartitioningOutliers.addAll(outliersByPartition(null,nodes));
 
-            List<SortedMap<String, OutliersAnswerElement>> allPartitioningOutliers =
-                outliersByPartition(allHopCountRoleDimensions, nodesWithHopCount);
-            allPartitioningOutliers.addAll(outliersByPartition(allCommonRoleDimensions, nodes));
-            allPartitioningOutliers.addAll(outliersByPartition(null,nodes));
+            List<SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>>> allPartitioningClusters =
+                    serverClustersByPartition(
+                        allHopCountRoleDimensions, nodesWithHopCount, Configuration::getDnsServers);
+            allPartitioningClusters.addAll(
+                serverClustersByPartition(
+                    allCommonRoleDimensions, nodes, Configuration::getDnsServers));
+            allPartitioningClusters.addAll(
+                serverClustersByPartition(null, nodes, Configuration::getDnsServers));
+            clusterServerAnalysis(allPartitioningClusters, nodes);
 
-            List<SortedMap<String, SortedSet<String>>> allPartitioningRoleNodeMap = new ArrayList<>();
+            List<SortedMap<String, SortedSet<String>>> allPartitioningRoleNodeMap =
+                new ArrayList<>();
             allHopCountRoleDimensions.forEach(
                 (nd) -> allPartitioningRoleNodeMap.add(nd.createRoleNodesMap(nodesWithHopCount)));
             Set<String> finalNodes = nodes;
             allCommonRoleDimensions.forEach(
                 (nd) -> allPartitioningRoleNodeMap.add(nd.createRoleNodesMap(finalNodes)));
-            serversAnalysis(allPartitioningOutliers, allPartitioningRoleNodeMap,finalNodes,"DnsServers");
+            // serversAnalysis(allPartitioningOutliers,
+            // allPartitioningRoleNodeMap,finalNodes,"DnsServers");
           }
         }
       }
@@ -237,7 +255,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       OutliersQuestion innerQ = new OutliersQuestionPlugin().createQuestion();
       innerQ.setNamedStructTypes(new TreeSet<>());
       innerQ.setHypothesis(OutliersHypothesis.SAME_SERVERS);
-//      innerQ.setVerbose(true);
+      //      innerQ.setVerbose(true);
       OutliersQuestionPlugin innerPlugin = new OutliersQuestionPlugin();
       List<SortedMap<String, OutliersAnswerElement>> allPartitioningOutliers = new ArrayList<>();
       if (allPartitions != null) {
@@ -251,11 +269,11 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             innerQ.setNodeRegex(new NodesSpecifier(namesToRegex(roleNodes.getValue())));
             OutliersAnswerElement answer = innerPlugin.createAnswerer(innerQ, _batfish).answer();
             outliersByRoleForAPartitioning.put(roleNodes.getKey(), answer);
-//            if(answer.getServerOutliers().size()>0){
-//              System.out.println("For Role : " + roleNodes.getKey());
-//            }
-//            System.out.print(answer.prettyPrint());
-             printHelper(answer, roleNodes.getKey());
+            //            if(answer.getServerOutliers().size()>0){
+            //              System.out.println("For Role : " + roleNodes.getKey());
+            //            }
+            //            System.out.print(answer.prettyPrint());
+            printHelper(answer, roleNodes.getKey());
           }
           allPartitioningOutliers.add(outliersByRoleForAPartitioning);
           System.out.println("------------------------------------------------------------------");
@@ -274,11 +292,12 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
 
     private void printHelper(OutliersAnswerElement answer, String role) {
       if (answer.getServerOutliers().size() > 0) {
-        System.out.print("\n/For Role : " + role+",");
+        System.out.print("\n/For Role : " + role + ",");
         for (OutlierSet<?> outlier : answer.getServerOutliers()) {
           // System.out.print("  Hypothesis: every node should have the following set of ");
           System.out.print(outlier.getName() + " --");
-          System.out.print(outlier.getOutliers().size() + "/" + outlier.getConformers().size()+",");
+          System.out.print(
+              outlier.getOutliers().size() + "/" + outlier.getConformers().size() + ",");
         }
       }
     }
@@ -286,7 +305,8 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
     private SortedMap<String, StringBuilder> serversAnalysis(
         List<SortedMap<String, OutliersAnswerElement>> allPartitionOutliers,
         List<SortedMap<String, SortedSet<String>>> roleNodemap,
-        Set<String> nodes, String server) {
+        Set<String> nodes,
+        String server) {
 
       SortedMap<String, StringBuilder> serverNodeCONMap = new TreeMap<>();
       String initial = new String(new char[allPartitionOutliers.size()]).replace("\0", ",-");
@@ -296,8 +316,8 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
 
       for (int i = 0; i < allPartitionOutliers.size(); i++) {
         int numberofConformers = 0;
-        int numberofOutliers =0;
-        int numberofNI =0;
+        int numberofOutliers = 0;
+        int numberofNI = 0;
         for (Entry<String, OutliersAnswerElement> entry : allPartitionOutliers.get(i).entrySet()) {
           for (OutlierSet<?> outlier : entry.getValue().getServerOutliers()) {
             SortedSet<String> outlierNodes = outlier.getOutliers();
@@ -342,7 +362,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                           .replace(i * 2 + 1, i * 2 + 2, "N"));
                 }
                 for (String node : outlierNodes) {
-		  serverNodeCONMap.put(
+                  serverNodeCONMap.put(
                       node,
                       serverNodeCONMap
                           .getOrDefault(node, new StringBuilder())
@@ -353,16 +373,118 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
           }
         }
 
-//        System.out.print("Partition#  "+(i+1));
-//        System.out.print("Conformers = "+numberofConformers);
-//        System.out.print("Outliers = "+numberofOutliers);
-//        System.out.println("No Information = "+numberofNI);
+        //        System.out.print("Partition#  "+(i+1));
+        //        System.out.print("Conformers = "+numberofConformers);
+        //        System.out.print("Outliers = "+numberofOutliers);
+        //        System.out.println("No Information = "+numberofNI);
 
       }
-//      for (Entry<String, StringBuilder> entry : serverNodeCONMap.entrySet()) {
-//        System.out.println(entry.getKey() + entry.getValue());
-//      }
+      //      for (Entry<String, StringBuilder> entry : serverNodeCONMap.entrySet()) {
+      //        System.out.println(entry.getKey() + entry.getValue());
+      //      }
       return serverNodeCONMap;
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T> void clusterServerAnalysis(
+        List<SortedMap<String, Map<T, SortedSet<String>>>> allPartioningClusters,
+        Set<String> nodes) {
+      StringBuilder percentageString = new StringBuilder();
+      SortedMap<String, StringBuilder> serverNodeCONMap = new TreeMap<>();
+      String initial = new String(new char[allPartioningClusters.size()]).replace("\0", ",-");
+      for (String node : nodes) {
+        serverNodeCONMap.put(node, new StringBuilder(initial));
+      }
+      for (int i = 0; i < allPartioningClusters.size(); i++) {
+        SortedMap<String, Map<T, SortedSet<String>>> clustersByRole = allPartioningClusters.get(i);
+        for (Entry<String, Map<T, SortedSet<String>>> role : clustersByRole.entrySet()) {
+          percentageString.append("\nRole: ").append(role.getKey());
+          long roleSize = role.getValue().values().stream().mapToLong(Collection::size).sum();
+          percentageString.append(",").append(roleSize);
+          SortedSet<String> clusterSizes = new TreeSet<>(Comparator.reverseOrder());
+          int conformers = 0, outliers = 0, NI = 0;
+          for (Entry<T, SortedSet<String>> cluster : role.getValue().entrySet()) {
+            NavigableSet<String> key = (NavigableSet<String>) cluster.getKey();
+            int clusterSize = cluster.getValue().size();
+            if (key.size() > 0) {
+              clusterSizes.add(String.format("%.03f", (double) clusterSize / roleSize) + "-1");
+            } else {
+              clusterSizes.add(String.format("%.03f", (double) clusterSize / roleSize) + "-0");
+            }
+            String clusterGroup;
+            if (clusterSize > 0.2 * roleSize) {
+              clusterGroup = "C";
+              conformers += clusterSize;
+            } else if (clusterSize < 10) {
+              clusterGroup = "O";
+              outliers += clusterSize;
+            } else {
+              clusterGroup = "N";
+              NI += clusterSize;
+            }
+            for (String node : cluster.getValue()) {
+              serverNodeCONMap.put(
+                  node,
+                  serverNodeCONMap
+                      .getOrDefault(node, new StringBuilder())
+                      .replace(i * 2 + 1, i * 2 + 2, clusterGroup));
+            }
+          }
+          percentageString
+              .append(",")
+              .append(conformers)
+              .append(",")
+              .append(outliers)
+              .append(",")
+              .append(NI);
+          clusterSizes.forEach(size -> percentageString.append(",").append(size));
+        }
+      }
+      StringBuilder CONString = new StringBuilder();
+      for (Entry<String, StringBuilder> entry : serverNodeCONMap.entrySet()) {
+        CONString.append(entry.getKey()).append(entry.getValue()).append("\n");
+      }
+      System.out.println(percentageString);
+      System.out.println(CONString);
+    }
+
+    private <T> Map<T, SortedSet<String>> getServerEqSets(
+        Function<Configuration, T> accessor, SortedSet<String> _nodes) {
+
+      Map<T, SortedSet<String>> equivSets = new HashMap<>();
+      for (String node : _nodes) {
+        T definition =
+            accessor.apply(
+                _batfish.loadConfigurations().get(node.contains("#") ? node.substring(2) : node));
+        SortedSet<String> matchingNodes = equivSets.getOrDefault(definition, new TreeSet<>());
+        matchingNodes.add(node.contains("#") ? node.substring(2) : node);
+        equivSets.put(definition, matchingNodes);
+      }
+      return equivSets;
+    }
+
+    private <T> List<SortedMap<String, Map<T, SortedSet<String>>>> serverClustersByPartition(
+        List<NodeRoleDimension> allPartitions,
+        Set<String> nodes,
+        Function<Configuration, T> accessor) {
+      List<SortedMap<String, Map<T, SortedSet<String>>>> allPartioningClusters = new ArrayList<>();
+      if (allPartitions != null) {
+        for (NodeRoleDimension partition : allPartitions) {
+          SortedMap<String, Map<T, SortedSet<String>>> clustersByRoleForAPartioninng =
+              new TreeMap<>();
+          SortedMap<String, SortedSet<String>> roleNodesMap = partition.createRoleNodesMap(nodes);
+          for (Map.Entry<String, SortedSet<String>> roleNodes : roleNodesMap.entrySet()) {
+            clustersByRoleForAPartioninng.put(
+                roleNodes.getKey(), getServerEqSets(accessor, roleNodes.getValue()));
+          }
+          allPartioningClusters.add(clustersByRoleForAPartioninng);
+        }
+      } else {
+        SortedMap<String, Map<T, SortedSet<String>>> singleRole = new TreeMap<>();
+        singleRole.put("Single Role", getServerEqSets(accessor, new TreeSet<>(nodes)));
+        allPartioningClusters.add(singleRole);
+      }
+      return allPartioningClusters;
     }
 
     /* create a regex that matches exactly the given set of names.
