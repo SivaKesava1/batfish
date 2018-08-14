@@ -32,7 +32,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import javax.swing.JFrame;
 import javax.swing.JPanel;
 import org.batfish.common.Answerer;
@@ -46,6 +45,7 @@ import org.batfish.datamodel.Configuration;
 import org.batfish.datamodel.Edge;
 import org.batfish.datamodel.Vrf;
 import org.batfish.datamodel.answers.AnswerElement;
+import org.batfish.datamodel.collections.NamedStructureEquivalenceSets;
 import org.batfish.datamodel.collections.OutlierSet;
 import org.batfish.datamodel.questions.NodesSpecifier;
 import org.batfish.datamodel.questions.Question;
@@ -215,25 +215,34 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             // allPartitioningOutliers.addAll(outliersByPartition(allCommonRoleDimensions, nodes));
             //            allPartitioningOutliers.addAll(outliersByPartition(null,nodes));
 
-            List<SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>>> allPartitioningClusters =
-                    serverClustersByPartition(
-                        allHopCountRoleDimensions, nodesWithHopCount, Configuration::getDnsServers);
-            allPartitioningClusters.addAll(
-                serverClustersByPartition(
-                    allCommonRoleDimensions, nodes, Configuration::getDnsServers));
-            allPartitioningClusters.addAll(
-                serverClustersByPartition(null, nodes, Configuration::getDnsServers));
-            clusterServerAnalysis(allPartitioningClusters, nodes);
+            SortedSet<String> serverSets = new TreeSet<>(question.getServerSets());
+            SortedMap<String, Function<Configuration, NavigableSet<String>>> serverSetAccessors =
+                new TreeMap<>();
+            serverSetAccessors.put("DnsServers", Configuration::getDnsServers);
+            serverSetAccessors.put("LoggingServers", Configuration::getLoggingServers);
+            serverSetAccessors.put("NtpServers", Configuration::getNtpServers);
+            serverSetAccessors.put("SnmpTrapServers", Configuration::getSnmpTrapServers);
+            serverSetAccessors.put("TacacsServers", Configuration::getTacacsServers);
 
-            List<SortedMap<String, SortedSet<String>>> allPartitioningRoleNodeMap =
-                new ArrayList<>();
-            allHopCountRoleDimensions.forEach(
-                (nd) -> allPartitioningRoleNodeMap.add(nd.createRoleNodesMap(nodesWithHopCount)));
-            Set<String> finalNodes = nodes;
-            allCommonRoleDimensions.forEach(
-                (nd) -> allPartitioningRoleNodeMap.add(nd.createRoleNodesMap(finalNodes)));
-            // serversAnalysis(allPartitioningOutliers,
-            // allPartitioningRoleNodeMap,finalNodes,"DnsServers");
+//            if (serverSets.isEmpty()) {
+//              serverSets.addAll(serverSetAccessors.keySet());
+//            }
+            for (String serverSet : serverSets) {
+              Function<Configuration, NavigableSet<String>> accessorF =
+                  serverSetAccessors.get(serverSet);
+              if (accessorF != null) {
+                List<SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>>>
+                    allPartitioningClusters =
+                        serverClustersByPartition(
+                            allHopCountRoleDimensions, nodesWithHopCount, accessorF);
+                allPartitioningClusters.addAll(
+                    serverClustersByPartition(allCommonRoleDimensions, nodes, accessorF));
+                allPartitioningClusters.addAll(serverClustersByPartition(null, nodes, accessorF));
+                clusterServerAnalysis(allPartitioningClusters, nodes);
+              }
+            }
+            namedStrucutresClustersByPartition(null, nodes);
+            namedStrucutresClustersByPartition(allHopCountRoleDimensions, nodesWithHopCount);
           }
         }
       }
@@ -304,7 +313,6 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
 
     private SortedMap<String, StringBuilder> serversAnalysis(
         List<SortedMap<String, OutliersAnswerElement>> allPartitionOutliers,
-        List<SortedMap<String, SortedSet<String>>> roleNodemap,
         Set<String> nodes,
         String server) {
 
@@ -385,18 +393,20 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       return serverNodeCONMap;
     }
 
+    // Given the clusters generate the CON map for each router and statistics for each role.
     @SuppressWarnings("unchecked")
     private <T> void clusterServerAnalysis(
-        List<SortedMap<String, Map<T, SortedSet<String>>>> allPartioningClusters,
+        List<SortedMap<String, Map<T, SortedSet<String>>>> allPartitioningClusters,
         Set<String> nodes) {
       StringBuilder percentageString = new StringBuilder();
       SortedMap<String, StringBuilder> serverNodeCONMap = new TreeMap<>();
-      String initial = new String(new char[allPartioningClusters.size()]).replace("\0", ",-");
+      String initial = new String(new char[allPartitioningClusters.size()]).replace("\0", ",-");
       for (String node : nodes) {
         serverNodeCONMap.put(node, new StringBuilder(initial));
       }
-      for (int i = 0; i < allPartioningClusters.size(); i++) {
-        SortedMap<String, Map<T, SortedSet<String>>> clustersByRole = allPartioningClusters.get(i);
+      for (int i = 0; i < allPartitioningClusters.size(); i++) {
+        SortedMap<String, Map<T, SortedSet<String>>> clustersByRole =
+            allPartitioningClusters.get(i);
         for (Entry<String, Map<T, SortedSet<String>>> role : clustersByRole.entrySet()) {
           percentageString.append("\nRole: ").append(role.getKey());
           long roleSize = role.getValue().values().stream().mapToLong(Collection::size).sum();
@@ -448,11 +458,12 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       System.out.println(CONString);
     }
 
+    // Helper to the serverClustersByPartition function.
     private <T> Map<T, SortedSet<String>> getServerEqSets(
-        Function<Configuration, T> accessor, SortedSet<String> _nodes) {
+        Function<Configuration, T> accessor, SortedSet<String> nodes) {
 
       Map<T, SortedSet<String>> equivSets = new HashMap<>();
-      for (String node : _nodes) {
+      for (String node : nodes) {
         T definition =
             accessor.apply(
                 _batfish.loadConfigurations().get(node.contains("#") ? node.substring(2) : node));
@@ -462,29 +473,77 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       }
       return equivSets;
     }
-
+    /*
+    Given various partitioning and the nodes this function generates clusters for each role for the
+    given accessor which can be getDNSServers or getLoggingServers, and so on.
+     */
     private <T> List<SortedMap<String, Map<T, SortedSet<String>>>> serverClustersByPartition(
         List<NodeRoleDimension> allPartitions,
         Set<String> nodes,
         Function<Configuration, T> accessor) {
-      List<SortedMap<String, Map<T, SortedSet<String>>>> allPartioningClusters = new ArrayList<>();
+      List<SortedMap<String, Map<T, SortedSet<String>>>> allPartitioningClusters =
+          new ArrayList<>();
       if (allPartitions != null) {
         for (NodeRoleDimension partition : allPartitions) {
-          SortedMap<String, Map<T, SortedSet<String>>> clustersByRoleForAPartioninng =
+          SortedMap<String, Map<T, SortedSet<String>>> clustersByRoleForAPartitioning =
               new TreeMap<>();
           SortedMap<String, SortedSet<String>> roleNodesMap = partition.createRoleNodesMap(nodes);
           for (Map.Entry<String, SortedSet<String>> roleNodes : roleNodesMap.entrySet()) {
-            clustersByRoleForAPartioninng.put(
+            clustersByRoleForAPartitioning.put(
                 roleNodes.getKey(), getServerEqSets(accessor, roleNodes.getValue()));
           }
-          allPartioningClusters.add(clustersByRoleForAPartioninng);
+          allPartitioningClusters.add(clustersByRoleForAPartitioning);
         }
       } else {
         SortedMap<String, Map<T, SortedSet<String>>> singleRole = new TreeMap<>();
         singleRole.put("Single Role", getServerEqSets(accessor, new TreeSet<>(nodes)));
-        allPartioningClusters.add(singleRole);
+        allPartitioningClusters.add(singleRole);
       }
-      return allPartioningClusters;
+      return allPartitioningClusters;
+    }
+
+    private List<SortedMap<String, SortedMap<String, NamedStructureEquivalenceSets<?>>>>
+        namedStrucutresClustersByPartition(
+            List<NodeRoleDimension> allPartitions, Set<String> nodes) {
+      List<SortedMap<String, SortedMap<String, NamedStructureEquivalenceSets<?>>>>
+          allPartitioningClusters = new ArrayList<>();
+      if (allPartitions != null) {
+        for (NodeRoleDimension partition : allPartitions) {
+          SortedMap<String, SortedSet<String>> roleNodesMap = partition.createRoleNodesMap(nodes);
+          SortedMap<String, SortedMap<String, NamedStructureEquivalenceSets<?>>>
+              clustersByRoleForAPartitioning = new TreeMap<>();
+          for (Map.Entry<String, SortedSet<String>> roleNodes : roleNodesMap.entrySet()) {
+            CompareSameNameQuestionPlugin.CompareSameNameQuestion inner =
+                new CompareSameNameQuestionPlugin.CompareSameNameQuestion(
+                    null,
+                    new TreeSet<>(),
+                    null,
+                    null,
+                    new NodesSpecifier(namesToRegex(roleNodes.getValue())),
+                    true);
+            CompareSameNameQuestionPlugin.CompareSameNameAnswerer innerAnswerer =
+                new CompareSameNameQuestionPlugin().createAnswerer(inner, _batfish);
+            CompareSameNameQuestionPlugin.CompareSameNameAnswerElement innerAnswer =
+                innerAnswerer.answer();
+            clustersByRoleForAPartitioning.put(
+                roleNodes.getKey(), innerAnswer.getEquivalenceSets());
+          }
+          allPartitioningClusters.add(clustersByRoleForAPartitioning);
+        }
+      } else {
+        SortedMap<String, SortedMap<String, NamedStructureEquivalenceSets<?>>> singleRole =
+            new TreeMap<>();
+        CompareSameNameQuestionPlugin.CompareSameNameQuestion inner =
+            new CompareSameNameQuestionPlugin.CompareSameNameQuestion(
+                null, new TreeSet<>(), null, null, null, true);
+        CompareSameNameQuestionPlugin.CompareSameNameAnswerer innerAnswerer =
+            new CompareSameNameQuestionPlugin().createAnswerer(inner, _batfish);
+        CompareSameNameQuestionPlugin.CompareSameNameAnswerElement innerAnswer =
+            innerAnswerer.answer();
+        singleRole.put("Single Role:", innerAnswer.getEquivalenceSets());
+        allPartitioningClusters.add(singleRole);
+      }
+      return allPartitioningClusters;
     }
 
     /* create a regex that matches exactly the given set of names.
@@ -722,6 +781,9 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
    *     name and Hop count distances. 2 - Hierarchical Clustering Based on Min Edit Distances. 3 -
    *     First by Hop Count and then by Name partitioning. 4 - Outliers.g 0 - Default Todd's best
    *     one.
+   * @param serverSets Set of server-set names to analyze drawn from ( DnsServers, LoggingServers, *
+   *     NtpServers, SnmpTrapServers, TacacsServers) Default value is '[]' (which denotes all *
+   *     server-set names).
    */
   public static final class NewRolesQuestion extends Question {
 
@@ -732,13 +794,17 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
     private static final String PROP_BORDER_NODE_REGEX = "borderNodeRegex";
 
     private static final String PROP_AS_NUMBERS = "asNumbers";
+
     private static final String PROP_ALGORITHM = "algorithm";
+
+    private static final String PROP_SERVER_SETS = "serverSets";
 
     @Nonnull private int _algorithm;
     @Nonnull private NodesSpecifier _nodeRegex;
     @Nonnull private NodesSpecifier _borderNodeRegex;
-    @Nullable private String _roleDimension;
-    @Nullable private String _asNumbers;
+    private String _roleDimension;
+    private String _asNumbers;
+    private SortedSet<String> _serverSets;
 
     @JsonCreator
     public NewRolesQuestion(
@@ -746,12 +812,14 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
         @JsonProperty(PROP_BORDER_NODE_REGEX) NodesSpecifier borderNodeRegex,
         @JsonProperty(PROP_ROLE_DIMENSION) String roleDimension,
         @JsonProperty(PROP_AS_NUMBERS) String asNumbers,
-        @JsonProperty(PROP_ALGORITHM) int algorithm) {
+        @JsonProperty(PROP_ALGORITHM) int algorithm,
+        @JsonProperty(PROP_SERVER_SETS) SortedSet<String> serverSets) {
       _nodeRegex = nodeRegex == null ? NodesSpecifier.ALL : nodeRegex;
       _roleDimension = roleDimension;
       _asNumbers = asNumbers;
       _borderNodeRegex = borderNodeRegex == null ? NodesSpecifier.NONE : borderNodeRegex;
       _algorithm = algorithm;
+      _serverSets = serverSets == null ? new TreeSet<>() : serverSets;
     }
 
     @Override
@@ -788,6 +856,11 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
     public int getAlgorithm() {
       return _algorithm;
     }
+
+    @JsonProperty(PROP_SERVER_SETS)
+    public SortedSet<String> getServerSets() {
+      return _serverSets;
+    }
   }
 
   @Override
@@ -797,6 +870,6 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
 
   @Override
   protected Question createQuestion() {
-    return new NewRolesQuestion(null, null, null, null, 0);
+    return new NewRolesQuestion(null, null, null, null, 0, null);
   }
 }
