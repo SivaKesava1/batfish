@@ -224,9 +224,9 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             serverSetAccessors.put("SnmpTrapServers", Configuration::getSnmpTrapServers);
             serverSetAccessors.put("TacacsServers", Configuration::getTacacsServers);
 
-//            if (serverSets.isEmpty()) {
-//              serverSets.addAll(serverSetAccessors.keySet());
-//            }
+            if (serverSets.isEmpty()) {
+              serverSets.addAll(serverSetAccessors.keySet());
+            }
             for (String serverSet : serverSets) {
               Function<Configuration, NavigableSet<String>> accessorF =
                   serverSetAccessors.get(serverSet);
@@ -394,9 +394,9 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
     }
 
     // Given the clusters generate the CON map for each router and statistics for each role.
-    @SuppressWarnings("unchecked")
-    private <T> void clusterServerAnalysis(
-        List<SortedMap<String, Map<T, SortedSet<String>>>> allPartitioningClusters,
+    private void clusterServerAnalysis(
+        List<SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>>>
+            allPartitioningClusters,
         Set<String> nodes) {
       StringBuilder percentageString = new StringBuilder();
       SortedMap<String, StringBuilder> serverNodeCONMap = new TreeMap<>();
@@ -404,17 +404,18 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       for (String node : nodes) {
         serverNodeCONMap.put(node, new StringBuilder(initial));
       }
+      Map<String,Map<String,Map<NavigableSet<String>, SortedSet<String>>>> outlierNodes = new HashMap<>();
       for (int i = 0; i < allPartitioningClusters.size(); i++) {
-        SortedMap<String, Map<T, SortedSet<String>>> clustersByRole =
+        SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>> clustersByRole =
             allPartitioningClusters.get(i);
-        for (Entry<String, Map<T, SortedSet<String>>> role : clustersByRole.entrySet()) {
-          percentageString.append("\nRole: ").append(role.getKey());
+        for (Entry<String, Map<NavigableSet<String>, SortedSet<String>>> role :
+            clustersByRole.entrySet()) {
           long roleSize = role.getValue().values().stream().mapToLong(Collection::size).sum();
-          percentageString.append(",").append(roleSize);
           SortedSet<String> clusterSizes = new TreeSet<>(Comparator.reverseOrder());
           int conformers = 0, outliers = 0, NI = 0;
-          for (Entry<T, SortedSet<String>> cluster : role.getValue().entrySet()) {
-            NavigableSet<String> key = (NavigableSet<String>) cluster.getKey();
+          for (Entry<NavigableSet<String>, SortedSet<String>> cluster :
+              role.getValue().entrySet()) {
+            NavigableSet<String> key = cluster.getKey();
             int clusterSize = cluster.getValue().size();
             if (key.size() > 0) {
               clusterSizes.add(String.format("%.03f", (double) clusterSize / roleSize) + "-1");
@@ -428,6 +429,12 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             } else if (clusterSize < 10) {
               clusterGroup = "O";
               outliers += clusterSize;
+              for (String node : cluster.getValue()) {
+                Map<String, Map<NavigableSet<String>, SortedSet<String>>> outlierRoleMap =
+                    outlierNodes.getOrDefault(node, new HashMap<>());
+                outlierRoleMap.put(role.getKey(), role.getValue());
+                outlierNodes.put(node, outlierRoleMap);
+              }
             } else {
               clusterGroup = "N";
               NI += clusterSize;
@@ -440,31 +447,58 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                       .replace(i * 2 + 1, i * 2 + 2, clusterGroup));
             }
           }
-          percentageString
-              .append(",")
-              .append(conformers)
-              .append(",")
-              .append(outliers)
-              .append(",")
-              .append(NI);
-          clusterSizes.forEach(size -> percentageString.append(",").append(size));
+          if (conformers != roleSize) {
+            percentageString.append("\nRole: ").append(role.getKey());
+            percentageString.append(",").append(roleSize);
+            percentageString
+                .append(",")
+                .append(conformers)
+                .append(",")
+                .append(outliers)
+                .append(",")
+                .append(NI);
+            clusterSizes.forEach(size -> percentageString.append(",").append(size));
+          }
         }
       }
       StringBuilder CONString = new StringBuilder();
       for (Entry<String, StringBuilder> entry : serverNodeCONMap.entrySet()) {
-        CONString.append(entry.getKey()).append(entry.getValue()).append("\n");
+        if (entry.getValue().toString().contains("O")) {
+          CONString.append(entry.getKey()).append(entry.getValue()).append("\n");
+        }
       }
+      StringBuilder outlierDefinitionString = new StringBuilder();
+      for(Entry<String,Map<String,Map<NavigableSet<String>, SortedSet<String>>>> nodePair : outlierNodes.entrySet()){
+        String nodeName = nodePair.getKey();
+        outlierDefinitionString.append("\nNode Name:").append(nodeName);
+        for(Entry<String,Map<NavigableSet<String>, SortedSet<String>>> rolePair : nodePair.getValue().entrySet()){
+          String roleName = rolePair.getKey();
+          outlierDefinitionString.append("\n\t In Role: ").append(roleName);
+          Map<NavigableSet<String>, SortedSet<String>> clusters = rolePair.getValue();
+          NavigableSet<String> myDefinition;
+          List<NavigableSet<String>> conformerDefinitons; 
+          for (Entry<NavigableSet<String>, SortedSet<String>> eachCluster : clusters.entrySet()) {
+            if (eachCluster.getValue().contains(nodeName)) {
+              myDefinition = eachCluster.getKey();
+              outlierDefinitionString.append("\n\t\tIt Has:").append(eachCluster.getKey());
+            } else {
+              outlierDefinitionString.append("\n\t\tOthers Have:").append(eachCluster.getKey());
+            }
+          }
+        }
+      }
+      System.out.println(outlierDefinitionString);
       System.out.println(percentageString);
       System.out.println(CONString);
     }
 
     // Helper to the serverClustersByPartition function.
-    private <T> Map<T, SortedSet<String>> getServerEqSets(
-        Function<Configuration, T> accessor, SortedSet<String> nodes) {
+    private Map<NavigableSet<String>, SortedSet<String>> getServerEqSets(
+        Function<Configuration, NavigableSet<String>> accessor, SortedSet<String> nodes) {
 
-      Map<T, SortedSet<String>> equivSets = new HashMap<>();
+      Map<NavigableSet<String>, SortedSet<String>> equivSets = new HashMap<>();
       for (String node : nodes) {
-        T definition =
+        NavigableSet<String> definition =
             accessor.apply(
                 _batfish.loadConfigurations().get(node.contains("#") ? node.substring(2) : node));
         SortedSet<String> matchingNodes = equivSets.getOrDefault(definition, new TreeSet<>());
@@ -477,16 +511,17 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
     Given various partitioning and the nodes this function generates clusters for each role for the
     given accessor which can be getDNSServers or getLoggingServers, and so on.
      */
-    private <T> List<SortedMap<String, Map<T, SortedSet<String>>>> serverClustersByPartition(
-        List<NodeRoleDimension> allPartitions,
-        Set<String> nodes,
-        Function<Configuration, T> accessor) {
-      List<SortedMap<String, Map<T, SortedSet<String>>>> allPartitioningClusters =
-          new ArrayList<>();
+    private List<SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>>>
+        serverClustersByPartition(
+            List<NodeRoleDimension> allPartitions,
+            Set<String> nodes,
+            Function<Configuration, NavigableSet<String>> accessor) {
+      List<SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>>>
+          allPartitioningClusters = new ArrayList<>();
       if (allPartitions != null) {
         for (NodeRoleDimension partition : allPartitions) {
-          SortedMap<String, Map<T, SortedSet<String>>> clustersByRoleForAPartitioning =
-              new TreeMap<>();
+          SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>>
+              clustersByRoleForAPartitioning = new TreeMap<>();
           SortedMap<String, SortedSet<String>> roleNodesMap = partition.createRoleNodesMap(nodes);
           for (Map.Entry<String, SortedSet<String>> roleNodes : roleNodesMap.entrySet()) {
             clustersByRoleForAPartitioning.put(
@@ -495,7 +530,8 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
           allPartitioningClusters.add(clustersByRoleForAPartitioning);
         }
       } else {
-        SortedMap<String, Map<T, SortedSet<String>>> singleRole = new TreeMap<>();
+        SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>> singleRole =
+            new TreeMap<>();
         singleRole.put("Single Role", getServerEqSets(accessor, new TreeSet<>(nodes)));
         allPartitioningClusters.add(singleRole);
       }
