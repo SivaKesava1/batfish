@@ -10,6 +10,7 @@ import com.apporiented.algorithm.clustering.visualization.DendrogramPanel;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.auto.service.AutoService;
+import com.google.common.collect.Sets;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.util.ArrayList;
@@ -45,6 +46,7 @@ import org.batfish.datamodel.Configuration;
 import org.batfish.datamodel.Edge;
 import org.batfish.datamodel.Vrf;
 import org.batfish.datamodel.answers.AnswerElement;
+import org.batfish.datamodel.collections.NamedStructureEquivalenceSet;
 import org.batfish.datamodel.collections.NamedStructureEquivalenceSets;
 import org.batfish.datamodel.collections.OutlierSet;
 import org.batfish.datamodel.questions.NodesSpecifier;
@@ -231,6 +233,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
               Function<Configuration, NavigableSet<String>> accessorF =
                   serverSetAccessors.get(serverSet);
               if (accessorF != null) {
+                System.out.println("-------------"+serverSet+"-----------------");
                 List<SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>>>
                     allPartitioningClusters =
                         serverClustersByPartition(
@@ -404,7 +407,9 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       for (String node : nodes) {
         serverNodeCONMap.put(node, new StringBuilder(initial));
       }
-      Map<String,Map<String,Map<NavigableSet<String>, SortedSet<String>>>> outlierNodes = new HashMap<>();
+      Map<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>>
+          outlierNodesAndClusters = new HashMap<>();
+      Map<String, NavigableSet<String>> outlierNodesDefinition = new HashMap<>();
       for (int i = 0; i < allPartitioningClusters.size(); i++) {
         SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>> clustersByRole =
             allPartitioningClusters.get(i);
@@ -431,9 +436,10 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
               outliers += clusterSize;
               for (String node : cluster.getValue()) {
                 Map<String, Map<NavigableSet<String>, SortedSet<String>>> outlierRoleMap =
-                    outlierNodes.getOrDefault(node, new HashMap<>());
+                    outlierNodesAndClusters.getOrDefault(node, new HashMap<>());
                 outlierRoleMap.put(role.getKey(), role.getValue());
-                outlierNodes.put(node, outlierRoleMap);
+                outlierNodesAndClusters.put(node, outlierRoleMap);
+                outlierNodesDefinition.putIfAbsent(node, key);
               }
             } else {
               clusterGroup = "N";
@@ -468,23 +474,39 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
         }
       }
       StringBuilder outlierDefinitionString = new StringBuilder();
-      for(Entry<String,Map<String,Map<NavigableSet<String>, SortedSet<String>>>> nodePair : outlierNodes.entrySet()){
+      for (Entry<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>> nodePair :
+          outlierNodesAndClusters.entrySet()) {
         String nodeName = nodePair.getKey();
         outlierDefinitionString.append("\nNode Name:").append(nodeName);
-        for(Entry<String,Map<NavigableSet<String>, SortedSet<String>>> rolePair : nodePair.getValue().entrySet()){
+        NavigableSet<String> myDefinition = outlierNodesDefinition.get(nodeName);
+        List<NavigableSet<String>> conformerDefinitions = new ArrayList<>();
+        for (Entry<String, Map<NavigableSet<String>, SortedSet<String>>> rolePair :
+            nodePair.getValue().entrySet()) {
           String roleName = rolePair.getKey();
           outlierDefinitionString.append("\n\t In Role: ").append(roleName);
           Map<NavigableSet<String>, SortedSet<String>> clusters = rolePair.getValue();
-          NavigableSet<String> myDefinition;
-          List<NavigableSet<String>> conformerDefinitons; 
+          NavigableSet<String> bestClusterConformer =null;
           for (Entry<NavigableSet<String>, SortedSet<String>> eachCluster : clusters.entrySet()) {
             if (eachCluster.getValue().contains(nodeName)) {
-              myDefinition = eachCluster.getKey();
               outlierDefinitionString.append("\n\t\tIt Has:").append(eachCluster.getKey());
             } else {
               outlierDefinitionString.append("\n\t\tOthers Have:").append(eachCluster.getKey());
+              if (bestClusterConformer == null) {
+                bestClusterConformer = eachCluster.getKey();
+              } else {
+                if (Sets.symmetricDifference(myDefinition, eachCluster.getKey()).size()
+                    > Sets.symmetricDifference(myDefinition, bestClusterConformer).size()) {
+                  bestClusterConformer = eachCluster.getKey();
+                }
+              }
             }
           }
+          conformerDefinitions.add(bestClusterConformer);
+        }
+        System.out.println("\nNode Name: " + nodeName);
+        System.out.println("\t\tDefinition Present :" + myDefinition);
+        for (NavigableSet<String> each : new HashSet<>(conformerDefinitions)) {
+          System.out.print("\t\t" + each);
         }
       }
       System.out.println(outlierDefinitionString);
