@@ -183,12 +183,12 @@ public class UnusedStructuresQuestionPlugin extends QuestionPlugin {
   }
 
   @Override
-  protected Answerer createAnswerer(Question question, IBatfish batfish) {
+  protected UnusedStructuresAnswerer createAnswerer(Question question, IBatfish batfish) {
     return new UnusedStructuresAnswerer(question, batfish);
   }
 
   @Override
-  protected Question createQuestion() {
+  protected UnusedStructuresQuestion createQuestion() {
     return new UnusedStructuresQuestion();
   }
 }

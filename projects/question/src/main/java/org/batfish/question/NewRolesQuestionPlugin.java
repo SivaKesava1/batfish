@@ -46,13 +46,14 @@ import org.batfish.datamodel.Configuration;
 import org.batfish.datamodel.Edge;
 import org.batfish.datamodel.Vrf;
 import org.batfish.datamodel.answers.AnswerElement;
-import org.batfish.datamodel.collections.NamedStructureEquivalenceSet;
 import org.batfish.datamodel.collections.NamedStructureEquivalenceSets;
 import org.batfish.datamodel.collections.OutlierSet;
 import org.batfish.datamodel.questions.NodesSpecifier;
 import org.batfish.datamodel.questions.Question;
 import org.batfish.question.OutliersQuestionPlugin.OutliersAnswerElement;
 import org.batfish.question.OutliersQuestionPlugin.OutliersQuestion;
+import org.batfish.question.UnusedStructuresQuestionPlugin.UnusedStructuresAnswerElement;
+import org.batfish.question.UnusedStructuresQuestionPlugin.UnusedStructuresQuestion;
 import org.batfish.role.InferRoles;
 import org.batfish.role.InferRoles.PreToken;
 import org.batfish.role.NodeRoleDimension;
@@ -233,7 +234,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
               Function<Configuration, NavigableSet<String>> accessorF =
                   serverSetAccessors.get(serverSet);
               if (accessorF != null) {
-                System.out.println("-------------"+serverSet+"-----------------");
+                System.out.println("-------------" + serverSet + "-----------------");
                 List<SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>>>
                     allPartitioningClusters =
                         serverClustersByPartition(
@@ -244,8 +245,22 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                 clusterServerAnalysis(allPartitioningClusters, nodes);
               }
             }
-            namedStrucutresClustersByPartition(null, nodes);
-            namedStrucutresClustersByPartition(allHopCountRoleDimensions, nodesWithHopCount);
+            SortedMap<String, NamedStructureEquivalenceSets<?>> single_role =
+                namedStrucutresClustersByPartition(null, nodes).get(0).get("Single Role:");
+
+            for (Entry<String, NamedStructureEquivalenceSets<?>> namedStructure :
+                single_role.entrySet()) {
+              namedStructure.getValue().clean();
+            }
+            //            namedStrucutresClustersByPartition(allHopCountRoleDimensions,
+            // nodesWithHopCount);
+            UnusedStructuresQuestion unusedStructuresQ =
+                new UnusedStructuresQuestionPlugin().createQuestion();
+            UnusedStructuresAnswerElement answer =
+                new UnusedStructuresQuestionPlugin()
+                    .createAnswerer(unusedStructuresQ, _batfish)
+                    .answer();
+            System.out.println("Hello");
           }
         }
       }
@@ -485,7 +500,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
           String roleName = rolePair.getKey();
           outlierDefinitionString.append("\n\t In Role: ").append(roleName);
           Map<NavigableSet<String>, SortedSet<String>> clusters = rolePair.getValue();
-          NavigableSet<String> bestClusterConformer =null;
+          NavigableSet<String> bestClusterConformer = null;
           for (Entry<NavigableSet<String>, SortedSet<String>> eachCluster : clusters.entrySet()) {
             if (eachCluster.getValue().contains(nodeName)) {
               outlierDefinitionString.append("\n\t\tIt Has:").append(eachCluster.getKey());
@@ -593,7 +608,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             new TreeMap<>();
         CompareSameNameQuestionPlugin.CompareSameNameQuestion inner =
             new CompareSameNameQuestionPlugin.CompareSameNameQuestion(
-                null, new TreeSet<>(), null, null, null, true);
+                null, new TreeSet<>(), Boolean.TRUE, null, null, true);
         CompareSameNameQuestionPlugin.CompareSameNameAnswerer innerAnswerer =
             new CompareSameNameQuestionPlugin().createAnswerer(inner, _batfish);
         CompareSameNameQuestionPlugin.CompareSameNameAnswerElement innerAnswer =

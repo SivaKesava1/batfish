@@ -128,8 +128,14 @@ public class NamedStructureEquivalenceSets<T> {
   /** Remove structures with only one equivalence class, since they indicate nothing of note */
   public void clean() {
     _sameNamedStructures =
-        _sameNamedStructures.entrySet().stream()
-            .filter(e -> e.getValue().size() != 1)
+        _sameNamedStructures
+            .entrySet()
+            .stream()
+            .filter(
+                e ->
+                    !(e.getValue().size() == 1
+                        | (e.getValue().size() == 2
+                            & e.getValue().first().getNamedStructure() == null)))
             .collect(
                 ImmutableSortedMap.toImmutableSortedMap(
                     Comparator.naturalOrder(), Entry::getKey, Entry::getValue));
