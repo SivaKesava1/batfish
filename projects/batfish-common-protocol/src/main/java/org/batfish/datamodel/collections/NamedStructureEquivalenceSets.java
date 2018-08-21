@@ -30,6 +30,9 @@ public class NamedStructureEquivalenceSets<T> {
 
     private static boolean checkJsonStringEquals(String lhs, String rhs) {
       try {
+        if (lhs.equals("null") & rhs.equals("null")) {
+          return true;
+        }
         JSONAssert.assertEquals(lhs, rhs, false);
         return true;
       } catch (Exception e) {

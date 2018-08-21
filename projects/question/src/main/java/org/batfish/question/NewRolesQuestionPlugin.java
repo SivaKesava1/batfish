@@ -16,6 +16,7 @@ import java.awt.Color;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -50,9 +51,9 @@ import org.batfish.datamodel.collections.NamedStructureEquivalenceSets;
 import org.batfish.datamodel.collections.OutlierSet;
 import org.batfish.datamodel.questions.NodesSpecifier;
 import org.batfish.datamodel.questions.Question;
+import org.batfish.datamodel.table.TableAnswerElement;
 import org.batfish.question.OutliersQuestionPlugin.OutliersAnswerElement;
 import org.batfish.question.OutliersQuestionPlugin.OutliersQuestion;
-import org.batfish.question.UnusedStructuresQuestionPlugin.UnusedStructuresAnswerElement;
 import org.batfish.question.UnusedStructuresQuestionPlugin.UnusedStructuresQuestion;
 import org.batfish.role.InferRoles;
 import org.batfish.role.InferRoles.PreToken;
@@ -234,7 +235,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
               Function<Configuration, NavigableSet<String>> accessorF =
                   serverSetAccessors.get(serverSet);
               if (accessorF != null) {
-                System.out.println("-------------" + serverSet + "-----------------");
+                System.out.println("\n-------------" + serverSet + "-----------------");
                 List<SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>>>
                     allPartitioningClusters =
                         serverClustersByPartition(
@@ -256,7 +257,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             // nodesWithHopCount);
             UnusedStructuresQuestion unusedStructuresQ =
                 new UnusedStructuresQuestionPlugin().createQuestion();
-            UnusedStructuresAnswerElement answer =
+            TableAnswerElement answer =
                 new UnusedStructuresQuestionPlugin()
                     .createAnswerer(unusedStructuresQ, _batfish)
                     .answer();
@@ -422,8 +423,8 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       for (String node : nodes) {
         serverNodeCONMap.put(node, new StringBuilder(initial));
       }
-      Map<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>>
-          outlierNodesAndClusters = new HashMap<>();
+      SortedMap<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>>
+          outlierNodesAndClusters = new TreeMap<>();
       Map<String, NavigableSet<String>> outlierNodesDefinition = new HashMap<>();
       for (int i = 0; i < allPartitioningClusters.size(); i++) {
         SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>> clustersByRole =
@@ -488,6 +489,9 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
           CONString.append(entry.getKey()).append(entry.getValue()).append("\n");
         }
       }
+      outlierNodesAndClusters.
+
+
       StringBuilder outlierDefinitionString = new StringBuilder();
       for (Entry<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>> nodePair :
           outlierNodesAndClusters.entrySet()) {
@@ -521,12 +525,12 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
         System.out.println("\nNode Name: " + nodeName);
         System.out.println("\t\tDefinition Present :" + myDefinition);
         for (NavigableSet<String> each : new HashSet<>(conformerDefinitions)) {
-          System.out.print("\t\t" + each);
+          System.out.print("\t\t" + each+"-"+Collections.frequency(conformerDefinitions,each));
         }
       }
-      System.out.println(outlierDefinitionString);
-      System.out.println(percentageString);
-      System.out.println(CONString);
+//      System.out.println(outlierDefinitionString);
+//      System.out.println(percentageString);
+//      System.out.println(CONString);
     }
 
     // Helper to the serverClustersByPartition function.
