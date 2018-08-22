@@ -412,6 +412,101 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       return serverNodeCONMap;
     }
 
+    private void serverSuggestions(
+        List<Entry<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>>>
+            sortedOutliers,
+        Map<String, NavigableSet<String>> outlierNodesDefinition) {
+
+      for (int i = 0; i < sortedOutliers.size(); i++) {
+        Entry<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>> nodePair =
+            sortedOutliers.get(i);
+        String nodeName = nodePair.getKey();
+        Map<NavigableSet<String>, SortedSet<String>> suggestion = new HashMap<>();
+        long previous = -1;
+        for (Entry<String, Map<NavigableSet<String>, SortedSet<String>>> rolePair :
+            nodePair.getValue().entrySet()) {
+          String roleName = rolePair.getKey();
+          Map<NavigableSet<String>, SortedSet<String>> clusters = rolePair.getValue();
+          long roleSize = clusters.values().stream().flatMap(Collection::stream).count();
+          if (suggestion.size() == 0) {
+            suggestion = rolePair.getValue();
+          }
+          if (roleSize > 10) {
+            previous = previous == -1 ? roleSize : previous;
+            if (previous > roleSize) {
+              previous = roleSize;
+              suggestion = rolePair.getValue();
+            }
+          }
+        }
+        System.out.println("Node Name:" + nodeName);
+        System.out.println(
+            suggestion
+                .entrySet()
+                .stream()
+                .max((s1, s2) -> (s1.getValue().size() > s2.getValue().size() ? 1 : 0))
+                .get()
+                .getKey());
+      }
+    }
+
+    // Given the outlier Nodes in a sorted List, for each node for each role it was identified as an
+    // outlier suggest the better one using the Set Symmetric Difference or Majority cluster. Then
+    // for each suggestion count the number of times it has been suggested.
+    private StringBuilder serverSuggestionByRole_BestSelection(
+        List<Entry<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>>>
+            sortedOutliers,
+        Map<String, NavigableSet<String>> outlierNodesDefinition) {
+      StringBuilder outlierRoleSuggestions = new StringBuilder();
+      for (int i = 0; i < sortedOutliers.size(); i++) {
+        Entry<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>> nodePair =
+            sortedOutliers.get(i);
+        String nodeName = nodePair.getKey();
+        outlierRoleSuggestions.append("\nNode Name:").append(nodeName);
+        NavigableSet<String> myDefinition = outlierNodesDefinition.get(nodeName);
+        List<NavigableSet<String>> conformerDefinitions = new ArrayList<>();
+        for (Entry<String, Map<NavigableSet<String>, SortedSet<String>>> rolePair :
+            nodePair.getValue().entrySet()) {
+          String roleName = rolePair.getKey();
+          // outlierRoleSuggestions.append("\n\t In Role: ").append(roleName);
+          Map<NavigableSet<String>, SortedSet<String>> clusters = rolePair.getValue();
+          NavigableSet<String> bestClusterConformer = null;
+          long roleSize = clusters.values().stream().flatMap(Collection::stream).count();
+          for (Entry<NavigableSet<String>, SortedSet<String>> eachCluster : clusters.entrySet()) {
+            if (eachCluster.getValue().contains(nodeName)) {
+              // outlierRoleSuggestions.append("\n\t\tIt Has:").append(eachCluster.getKey());
+            } else if (eachCluster.getValue().size() > 0.2 * roleSize) {
+              // outlierRoleSuggestions.append("\n\t\tOthers Have:").append(eachCluster.getKey());
+              if (bestClusterConformer == null) {
+                bestClusterConformer = eachCluster.getKey();
+              } else {
+                //                if (Sets.symmetricDifference(myDefinition,
+                // eachCluster.getKey()).size()
+                //                    > Sets.symmetricDifference(myDefinition,
+                // bestClusterConformer).size()) {
+                //                  bestClusterConformer = eachCluster.getKey();
+                //                }
+                if (eachCluster.getValue().size() > clusters.get(bestClusterConformer).size()) {
+                  bestClusterConformer = eachCluster.getKey();
+                }
+              }
+            }
+          }
+          conformerDefinitions.add(bestClusterConformer);
+        }
+        // System.out.println("\nNode Name: " + nodeName);
+        outlierRoleSuggestions.append("\n\t\tDefinition Present :").append(myDefinition);
+        for (NavigableSet<String> each : new HashSet<>(conformerDefinitions)) {
+          outlierRoleSuggestions
+              .append("\n\t\tSuggestions : ")
+              .append(each)
+              .append("-")
+              .append(Collections.frequency(conformerDefinitions, each));
+        }
+      }
+      return outlierRoleSuggestions;
+    }
+
     // Given the clusters generate the CON map for each router and statistics for each role.
     private void clusterServerAnalysis(
         List<SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>>>
@@ -423,8 +518,8 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       for (String node : nodes) {
         serverNodeCONMap.put(node, new StringBuilder(initial));
       }
-      SortedMap<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>>
-          outlierNodesAndClusters = new TreeMap<>();
+      Map<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>>
+          outlierNodesAndClusters = new HashMap<>();
       Map<String, NavigableSet<String>> outlierNodesDefinition = new HashMap<>();
       for (int i = 0; i < allPartitioningClusters.size(); i++) {
         SortedMap<String, Map<NavigableSet<String>, SortedSet<String>>> clustersByRole =
@@ -489,48 +584,17 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
           CONString.append(entry.getKey()).append(entry.getValue()).append("\n");
         }
       }
-      outlierNodesAndClusters.
-
-
-      StringBuilder outlierDefinitionString = new StringBuilder();
-      for (Entry<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>> nodePair :
-          outlierNodesAndClusters.entrySet()) {
-        String nodeName = nodePair.getKey();
-        outlierDefinitionString.append("\nNode Name:").append(nodeName);
-        NavigableSet<String> myDefinition = outlierNodesDefinition.get(nodeName);
-        List<NavigableSet<String>> conformerDefinitions = new ArrayList<>();
-        for (Entry<String, Map<NavigableSet<String>, SortedSet<String>>> rolePair :
-            nodePair.getValue().entrySet()) {
-          String roleName = rolePair.getKey();
-          outlierDefinitionString.append("\n\t In Role: ").append(roleName);
-          Map<NavigableSet<String>, SortedSet<String>> clusters = rolePair.getValue();
-          NavigableSet<String> bestClusterConformer = null;
-          for (Entry<NavigableSet<String>, SortedSet<String>> eachCluster : clusters.entrySet()) {
-            if (eachCluster.getValue().contains(nodeName)) {
-              outlierDefinitionString.append("\n\t\tIt Has:").append(eachCluster.getKey());
-            } else {
-              outlierDefinitionString.append("\n\t\tOthers Have:").append(eachCluster.getKey());
-              if (bestClusterConformer == null) {
-                bestClusterConformer = eachCluster.getKey();
-              } else {
-                if (Sets.symmetricDifference(myDefinition, eachCluster.getKey()).size()
-                    > Sets.symmetricDifference(myDefinition, bestClusterConformer).size()) {
-                  bestClusterConformer = eachCluster.getKey();
-                }
-              }
-            }
-          }
-          conformerDefinitions.add(bestClusterConformer);
-        }
-        System.out.println("\nNode Name: " + nodeName);
-        System.out.println("\t\tDefinition Present :" + myDefinition);
-        for (NavigableSet<String> each : new HashSet<>(conformerDefinitions)) {
-          System.out.print("\t\t" + each+"-"+Collections.frequency(conformerDefinitions,each));
-        }
-      }
-//      System.out.println(outlierDefinitionString);
-//      System.out.println(percentageString);
-//      System.out.println(CONString);
+      List<Entry<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>>>
+          sortedOutliers =
+              outlierNodesAndClusters
+                  .entrySet()
+                  .stream()
+                  .sorted(Comparator.comparingInt(o -> -o.getValue().entrySet().size()))
+                  .collect(Collectors.toList());
+      // serverSuggestions(sortedOutliers,outlierNodesDefinition);
+      // System.out.println(serverSuggestionByRole_BestSelection(sortedOutliers,outlierNodesDefinition));
+      //      System.out.println(percentageString);
+      //      System.out.println(CONString);
     }
 
     // Helper to the serverClustersByPartition function.
