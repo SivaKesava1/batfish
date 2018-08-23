@@ -10,7 +10,6 @@ import com.apporiented.algorithm.clustering.visualization.DendrogramPanel;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.auto.service.AutoService;
-import com.google.common.collect.Sets;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.util.ArrayList;
@@ -261,7 +260,14 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                 new UnusedStructuresQuestionPlugin()
                     .createAnswerer(unusedStructuresQ, _batfish)
                     .answer();
-            System.out.println("Hello");
+
+            List<SortedMap<String, SortedSet<String>>> allPartitioningRoleNodeMap = new ArrayList<>();
+            allHopCountRoleDimensions.forEach(
+                (nd) -> allPartitioningRoleNodeMap.add(nd.createRoleNodesMap(nodesWithHopCount)));
+            Set<String> finalNodes = nodes;
+            allCommonRoleDimensions.forEach(
+                (nd) -> allPartitioningRoleNodeMap.add(nd.createRoleNodesMap(finalNodes)));
+            namedStructuresAnalysis(single_role,allPartitioningRoleNodeMap);
           }
         }
       }
@@ -272,6 +278,12 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
               roleDimension != null ? roleDimension.createRoleNodesMap(nodes) : null);
 
       return answerElement;
+    }
+
+    private void namedStructuresAnalysis(
+        SortedMap<String, NamedStructureEquivalenceSets<?>> single_role,
+        List<SortedMap<String, SortedSet<String>>> allPartitioningRoleNodeMap) {
+      single_role.get("IpAccessLists");
     }
 
     /*
@@ -527,16 +539,16 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
         for (Entry<String, Map<NavigableSet<String>, SortedSet<String>>> role :
             clustersByRole.entrySet()) {
           long roleSize = role.getValue().values().stream().mapToLong(Collection::size).sum();
-          SortedSet<String> clusterSizes = new TreeSet<>(Comparator.reverseOrder());
+          List<String> clusterSizes = new ArrayList<>();
           int conformers = 0, outliers = 0, NI = 0;
           for (Entry<NavigableSet<String>, SortedSet<String>> cluster :
               role.getValue().entrySet()) {
             NavigableSet<String> key = cluster.getKey();
             int clusterSize = cluster.getValue().size();
             if (key.size() > 0) {
-              clusterSizes.add(String.format("%.03f", (double) clusterSize / roleSize) + "-1");
+              clusterSizes.add(String.format("%.03f", (double) clusterSize / roleSize) + ",1");
             } else {
-              clusterSizes.add(String.format("%.03f", (double) clusterSize / roleSize) + "-0");
+              clusterSizes.add(String.format("%.03f", (double) clusterSize / roleSize) + ",0");
             }
             String clusterGroup;
             if (clusterSize > 0.2 * roleSize) {
@@ -574,6 +586,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                 .append(outliers)
                 .append(",")
                 .append(NI);
+            clusterSizes.sort(Comparator.reverseOrder());
             clusterSizes.forEach(size -> percentageString.append(",").append(size));
           }
         }
