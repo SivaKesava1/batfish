@@ -132,16 +132,18 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
           InferRoles infer = new InferRoles(nodes, _batfish.getEnvironmentTopology(), false);
           infer
               .inferRoles()
-              .forEach(
-                  (nodeRoleDimension) ->
-                      supportScores.add(
-                          new Pair<>(
-                              infer.computeRoleScore(
-                                  nodeRoleDimension
-                                      .getRoleRegexes()
-                                      .get(0)), // We consider only the first since its created as -
-                              // Collections.singletonList(regex)
-                              nodeRoleDimension)));
+              .forEach((nodeRoleDimension) -> {
+                assert nodeRoleDimension
+                    .getRoleRegexes() != null;
+                supportScores.add(
+                    new Pair<>(
+                        infer.computeRoleScore(
+                            nodeRoleDimension
+                                .getRoleRegexes()
+                                .get(0)), // We consider only the first since its created as -
+                        // Collections.singletonList(regex)
+                        nodeRoleDimension));
+              });
           double maxSupport = 0;
           for (Pair<Double, NodeRoleDimension> pair : supportScores) {
             double newSupport = computeAlphaWeightedScore(pair, nodeHierarchy);
@@ -154,7 +156,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
         // Hierarchical Clustering based on Min Edit Distances
         if (algorithm == 2) {
           Set<String> collect =
-              nodeHierarchy.stream().flatMap(x -> x.stream()).collect(Collectors.toSet());
+              nodeHierarchy.stream().flatMap(Collection::stream).collect(Collectors.toSet());
           double[][] distanceMatrix = editDistanceComputation(nodeHierarchy);
           ClusteringAlgorithm alg = new DefaultClusteringAlgorithm();
           Cluster cluster =
@@ -248,13 +250,9 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                 clusterServerAnalysis(allPartitioningClusters, nodes);
               }
             }
-            SortedMap<String, NamedStructureEquivalenceSets<?>> single_role =
+            SortedMap<String, NamedStructureEquivalenceSets<?>> singleRole =
                 namedStructuresClustersByPartition(null, nodes).get(0).get("Single Role:");
 
-            for (Entry<String, NamedStructureEquivalenceSets<?>> namedStructure :
-                single_role.entrySet()) {
-              namedStructure.getValue().clean();
-            }
             //            namedStructuresClustersByPartition(allHopCountRoleDimensions,
             // nodesWithHopCount);
             UnusedStructuresQuestion unusedStructuresQ =
@@ -263,16 +261,21 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                 new UnusedStructuresQuestionPlugin()
                     .createAnswerer(unusedStructuresQ, _batfish)
                     .answer();
+            clean(singleRole, unusedStructuresAnswer);
+            for (Entry<String, NamedStructureEquivalenceSets<?>> namedStructure :
+                singleRole.entrySet()) {
+              namedStructure.getValue().clean();
+            }
 
-            List<SortedMap<String, SortedSet<String>>> allPartitioningRoleNodeMap = new ArrayList<>();
+            List<SortedMap<String, SortedSet<String>>> allPartitioningRoleNodeMap =
+                new ArrayList<>();
             allHopCountRoleDimensions.forEach(
                 (nd) -> allPartitioningRoleNodeMap.add(nd.createRoleNodesMap(nodesWithHopCount)));
             Set<String> finalNodes = nodes;
             allCommonRoleDimensions.forEach(
                 (nd) -> allPartitioningRoleNodeMap.add(nd.createRoleNodesMap(finalNodes)));
-            clean(single_role, unusedStructuresAnswer);
-            namedStructuresAnalysis(single_role,allPartitioningRoleNodeMap);
 
+            namedStructuresAnalysis(singleRole, allPartitioningRoleNodeMap);
           }
         }
       }
@@ -286,24 +289,21 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
     }
 
     private void clean(
-        SortedMap<String, NamedStructureEquivalenceSets<?>> singleRole,
-        TableAnswerElement answer) {
+        SortedMap<String, NamedStructureEquivalenceSets<?>> singleRole, TableAnswerElement answer) {
       List<Row> rowsList = answer.getRowsList();
-      Map<String, String> fileNameHostMap =
-          _batfish
-              .loadParseVendorConfigurationAnswerElement()
-              .getFileMap()
-              .entrySet()
-              .stream()
-              .collect(Collectors.toMap(Entry::getValue, Entry::getKey));
-      for (int i = 0; i < rowsList.size(); i++) {
-        Row row = rowsList.get(i);
+      for (Row row : rowsList) {
         JsonNode structType = row.get("structType");
-        if(structType.asText().contains("ipv4 access-list")){
-          cleanHelper(singleRole,row,"IpAccessList");
+        if (structType.asText().contains("ipv4 access-list")) {
+          cleanHelper(singleRole, row, "IpAccessList");
         }
-        if(structType.asText().contains("ipv6 access-list")){
-          cleanHelper(singleRole,row,"Ip6AccessList");
+        if (structType.asText().contains("ipv6 access-list")) {
+          cleanHelper(singleRole, row, "Ip6AccessList");
+        }
+        if (structType.asText().contains("community")) {
+          cleanHelper(singleRole, row, "CommunityList");
+        }
+        if (structType.asText().contains("ipv6 prefix-list")) {
+          cleanHelper(singleRole, row, "Route6FilterList");
         }
       }
     }
@@ -525,9 +525,8 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             sortedOutliers,
         Map<String, NavigableSet<String>> outlierNodesDefinition) {
       StringBuilder outlierRoleSuggestions = new StringBuilder();
-      for (int i = 0; i < sortedOutliers.size(); i++) {
-        Entry<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>> nodePair =
-            sortedOutliers.get(i);
+      for (Entry<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>> nodePair :
+          sortedOutliers) {
         String nodeName = nodePair.getKey();
         outlierRoleSuggestions.append("\nNode Name:").append(nodeName);
         NavigableSet<String> myDefinition = outlierNodesDefinition.get(nodeName);
@@ -538,7 +537,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
           // outlierRoleSuggestions.append("\n\t In Role: ").append(roleName);
           Map<NavigableSet<String>, SortedSet<String>> clusters = rolePair.getValue();
           NavigableSet<String> bestClusterConformer = null;
-          long roleSize = clusters.values().stream().flatMap(Collection::stream).count();
+          long roleSize = clusters.values().stream().mapToLong(Collection::size).sum();
           for (Entry<NavigableSet<String>, SortedSet<String>> eachCluster : clusters.entrySet()) {
             if (eachCluster.getValue().contains(nodeName)) {
               // outlierRoleSuggestions.append("\n\t\tIt Has:").append(eachCluster.getKey());
@@ -595,7 +594,9 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             clustersByRole.entrySet()) {
           long roleSize = role.getValue().values().stream().mapToLong(Collection::size).sum();
           List<String> clusterSizes = new ArrayList<>();
-          int conformers = 0, outliers = 0, NI = 0;
+          int conformers = 0;
+          int outliers = 0;
+          int ni = 0;
           for (Entry<NavigableSet<String>, SortedSet<String>> cluster :
               role.getValue().entrySet()) {
             NavigableSet<String> key = cluster.getKey();
@@ -621,7 +622,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
               }
             } else {
               clusterGroup = "N";
-              NI += clusterSize;
+              ni += clusterSize;
             }
             for (String node : cluster.getValue()) {
               serverNodeCONMap.put(
@@ -640,7 +641,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                 .append(",")
                 .append(outliers)
                 .append(",")
-                .append(NI);
+                .append(ni);
             clusterSizes.sort(Comparator.reverseOrder());
             clusterSizes.forEach(size -> percentageString.append(",").append(size));
           }
@@ -787,15 +788,17 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
           BgpProcess proc = vrf.getBgpProcess();
           if (proc != null) {
             for (BgpActivePeerConfig neighbor : proc.getActiveNeighbors().values()) {
-              if (Long.compare(neighbor.getRemoteAs(), neighbor.getLocalAs()) != 0
-                  & neighbor.getRemoteAs() < 64512
-                  & neighbor.getLocalAs() < 64512
-                  & (!asNum.contains(neighbor.getRemoteAs()))) {
-                SortedSet<String> possible =
-                    possibleBorderRouters.computeIfAbsent(
-                        neighbor.getRemoteAs(), k -> new TreeSet<>());
-                possible.add(hostname);
-                copyBorderNodes.remove(hostname);
+              if (neighbor.getRemoteAs() != null & neighbor.getLocalAs() != null) {
+                if (!neighbor.getRemoteAs().equals(neighbor.getLocalAs())
+                    & neighbor.getRemoteAs() < 64512
+                    & neighbor.getLocalAs() < 64512
+                    & (!asNum.contains(neighbor.getRemoteAs()))) {
+                  SortedSet<String> possible =
+                      possibleBorderRouters.computeIfAbsent(
+                          neighbor.getRemoteAs(), k -> new TreeSet<>());
+                  possible.add(hostname);
+                  copyBorderNodes.remove(hostname);
+                }
               }
             }
           }
@@ -895,7 +898,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                       .forEach(nodeName -> nodeDistanceMap.put(nodeName, level)));
 
       SortedMap<String, List<Pair<String, PreToken>>> nameToPreTokensMap = new TreeMap<>();
-      SortedSet<String> nodes = ((TreeMap<String, Integer>) nodeDistanceMap).navigableKeySet();
+      SortedSet<String> nodes = (SortedSet<String>) nodeDistanceMap.keySet();
       nodes.forEach((name) -> nameToPreTokensMap.put(name, InferRoles.pretokenizeName(name)));
       double[][] distances = new double[nodes.size()][nodes.size()];
       int i = 0;
@@ -937,16 +940,15 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                       .filter((pair) -> pair.getSecond().equals(PreToken.DIGIT_PLUS))
                       .count()));
 
-      for (int i = 0; i < node1.size(); i++) {
+      for (Pair<String, PreToken> aNode1 : node1) {
         double minimum = 10000;
-        if (!node1.get(i).getSecond().equals(PreToken.DIGIT_PLUS)) {
-          for (int j = 0; j < node2.size(); j++) {
-            if (!node2.get(j).getSecond().equals(PreToken.DIGIT_PLUS)) {
-              int editDistance = distance(node1.get(i).getFirst(), node2.get(j).getFirst());
+        if (!aNode1.getSecond().equals(PreToken.DIGIT_PLUS)) {
+          for (Pair<String, PreToken> aNode2 : node2) {
+            if (!aNode2.getSecond().equals(PreToken.DIGIT_PLUS)) {
+              int editDistance = distance(aNode1.getFirst(), aNode2.getFirst());
               if (minimum > editDistance) {
-                minimum =
-                    (double) editDistance
-                        / max(node1.get(i).getFirst().length(), node2.get(j).getFirst().length());
+                minimum = (double) editDistance / max(aNode1.getFirst().length(),
+                    aNode2.getFirst().length());
               }
             }
           }
@@ -1008,7 +1010,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
 
     private static final String PROP_SERVER_SETS = "serverSets";
 
-    @Nonnull private int _algorithm;
+    private int _algorithm;
     @Nonnull private NodesSpecifier _nodeRegex;
     @Nonnull private NodesSpecifier _borderNodeRegex;
     private String _roleDimension;
