@@ -9,6 +9,7 @@ import com.apporiented.algorithm.clustering.DefaultClusteringAlgorithm;
 import com.apporiented.algorithm.clustering.visualization.DendrogramPanel;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.google.auto.service.AutoService;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -46,10 +47,12 @@ import org.batfish.datamodel.Configuration;
 import org.batfish.datamodel.Edge;
 import org.batfish.datamodel.Vrf;
 import org.batfish.datamodel.answers.AnswerElement;
+import org.batfish.datamodel.collections.NamedStructureEquivalenceSet;
 import org.batfish.datamodel.collections.NamedStructureEquivalenceSets;
 import org.batfish.datamodel.collections.OutlierSet;
 import org.batfish.datamodel.questions.NodesSpecifier;
 import org.batfish.datamodel.questions.Question;
+import org.batfish.datamodel.table.Row;
 import org.batfish.datamodel.table.TableAnswerElement;
 import org.batfish.question.OutliersQuestionPlugin.OutliersAnswerElement;
 import org.batfish.question.OutliersQuestionPlugin.OutliersQuestion;
@@ -246,17 +249,17 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
               }
             }
             SortedMap<String, NamedStructureEquivalenceSets<?>> single_role =
-                namedStrucutresClustersByPartition(null, nodes).get(0).get("Single Role:");
+                namedStructuresClustersByPartition(null, nodes).get(0).get("Single Role:");
 
             for (Entry<String, NamedStructureEquivalenceSets<?>> namedStructure :
                 single_role.entrySet()) {
               namedStructure.getValue().clean();
             }
-            //            namedStrucutresClustersByPartition(allHopCountRoleDimensions,
+            //            namedStructuresClustersByPartition(allHopCountRoleDimensions,
             // nodesWithHopCount);
             UnusedStructuresQuestion unusedStructuresQ =
                 new UnusedStructuresQuestionPlugin().createQuestion();
-            TableAnswerElement answer =
+            TableAnswerElement unusedStructuresAnswer =
                 new UnusedStructuresQuestionPlugin()
                     .createAnswerer(unusedStructuresQ, _batfish)
                     .answer();
@@ -267,7 +270,9 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             Set<String> finalNodes = nodes;
             allCommonRoleDimensions.forEach(
                 (nd) -> allPartitioningRoleNodeMap.add(nd.createRoleNodesMap(finalNodes)));
+            clean(single_role, unusedStructuresAnswer);
             namedStructuresAnalysis(single_role,allPartitioningRoleNodeMap);
+
           }
         }
       }
@@ -280,10 +285,60 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       return answerElement;
     }
 
+    private void clean(
+        SortedMap<String, NamedStructureEquivalenceSets<?>> singleRole,
+        TableAnswerElement answer) {
+      List<Row> rowsList = answer.getRowsList();
+      Map<String, String> fileNameHostMap =
+          _batfish
+              .loadParseVendorConfigurationAnswerElement()
+              .getFileMap()
+              .entrySet()
+              .stream()
+              .collect(Collectors.toMap(Entry::getValue, Entry::getKey));
+      for (int i = 0; i < rowsList.size(); i++) {
+        Row row = rowsList.get(i);
+        JsonNode structType = row.get("structType");
+        if(structType.asText().contains("ipv4 access-list")){
+          cleanHelper(singleRole,row,"IpAccessList");
+        }
+        if(structType.asText().contains("ipv6 access-list")){
+          cleanHelper(singleRole,row,"Ip6AccessList");
+        }
+      }
+    }
+
+    private void cleanHelper(
+        SortedMap<String, NamedStructureEquivalenceSets<?>> singleRole,
+        Row row,
+        String dataStructure) {
+      Map<String, String> fileNameHostMap =
+          _batfish
+              .loadParseVendorConfigurationAnswerElement()
+              .getFileMap()
+              .entrySet()
+              .stream()
+              .collect(Collectors.toMap(Entry::getValue, Entry::getKey));
+      NamedStructureEquivalenceSets<?> equivalenceSets = singleRole.get(dataStructure);
+      SortedSet<? extends NamedStructureEquivalenceSet<?>> structName =
+          equivalenceSets.getSameNamedStructures().get(row.get("structName").asText());
+      String name = fileNameHostMap.get(row.get("filename").asText());
+      if (structName != null) {
+        structName.forEach(
+            v -> {
+              if (v.getNodes().contains(name)) {
+                SortedSet<String> nodes = new TreeSet<>(v.getNodes());
+                nodes.remove(name);
+                v.setNodes(nodes);
+              }
+            });
+      }
+    }
+
     private void namedStructuresAnalysis(
-        SortedMap<String, NamedStructureEquivalenceSets<?>> single_role,
+        SortedMap<String, NamedStructureEquivalenceSets<?>> singleRole,
         List<SortedMap<String, SortedSet<String>>> allPartitioningRoleNodeMap) {
-      single_role.get("IpAccessLists");
+      singleRole.get("IpAccessLists");
     }
 
     /*
@@ -657,7 +712,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
     }
 
     private List<SortedMap<String, SortedMap<String, NamedStructureEquivalenceSets<?>>>>
-        namedStrucutresClustersByPartition(
+        namedStructuresClustersByPartition(
             List<NodeRoleDimension> allPartitions, Set<String> nodes) {
       List<SortedMap<String, SortedMap<String, NamedStructureEquivalenceSets<?>>>>
           allPartitioningClusters = new ArrayList<>();
@@ -689,7 +744,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             new TreeMap<>();
         CompareSameNameQuestionPlugin.CompareSameNameQuestion inner =
             new CompareSameNameQuestionPlugin.CompareSameNameQuestion(
-                null, new TreeSet<>(), Boolean.TRUE, null, null, true);
+                null, new TreeSet<>(), null, null, null, true);
         CompareSameNameQuestionPlugin.CompareSameNameAnswerer innerAnswerer =
             new CompareSameNameQuestionPlugin().createAnswerer(inner, _batfish);
         CompareSameNameQuestionPlugin.CompareSameNameAnswerElement innerAnswer =
