@@ -251,20 +251,20 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
               }
             }
             SortedMap<String, NamedStructureEquivalenceSets<?>> singleRole =
-                namedStructuresClustersByPartition(null, nodes).get(0).get("Single Role:");
+                namedStructuresSingleRole();
 
-            //            namedStructuresClustersByPartition(allHopCountRoleDimensions,
-            // nodesWithHopCount);
             UnusedStructuresQuestion unusedStructuresQ =
                 new UnusedStructuresQuestionPlugin().createQuestion();
             TableAnswerElement unusedStructuresAnswer =
                 new UnusedStructuresQuestionPlugin()
                     .createAnswerer(unusedStructuresQ, _batfish)
                     .answer();
-            clean(singleRole, unusedStructuresAnswer);
+
+            removeUnusedDataStructures(singleRole, unusedStructuresAnswer);
+
             for (Entry<String, NamedStructureEquivalenceSets<?>> namedStructure :
                 singleRole.entrySet()) {
-              namedStructure.getValue().clean();
+              namedStructure.getValue().removeEmptySetsAndClean();
             }
 
             List<SortedMap<String, SortedSet<String>>> allPartitioningRoleNodeMap =
@@ -288,27 +288,27 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       return answerElement;
     }
 
-    private void clean(
+    private void removeUnusedDataStructures(
         SortedMap<String, NamedStructureEquivalenceSets<?>> singleRole, TableAnswerElement answer) {
       List<Row> rowsList = answer.getRowsList();
       for (Row row : rowsList) {
         JsonNode structType = row.get("structType");
         if (structType.asText().contains("ipv4 access-list")) {
-          cleanHelper(singleRole, row, "IpAccessList");
+          removeHelper(singleRole, row, "IpAccessList");
         }
         if (structType.asText().contains("ipv6 access-list")) {
-          cleanHelper(singleRole, row, "Ip6AccessList");
+          removeHelper(singleRole, row, "Ip6AccessList");
         }
         if (structType.asText().contains("community")) {
-          cleanHelper(singleRole, row, "CommunityList");
+          removeHelper(singleRole, row, "CommunityList");
         }
         if (structType.asText().contains("ipv6 prefix-list")) {
-          cleanHelper(singleRole, row, "Route6FilterList");
+          removeHelper(singleRole, row, "Route6FilterList");
         }
       }
     }
 
-    private void cleanHelper(
+    private void removeHelper(
         SortedMap<String, NamedStructureEquivalenceSets<?>> singleRole,
         Row row,
         String dataStructure) {
@@ -664,6 +664,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       // System.out.println(serverSuggestionByRole_BestSelection(sortedOutliers,outlierNodesDefinition));
       //      System.out.println(percentageString);
       //      System.out.println(CONString);
+
     }
 
     // Helper to the serverClustersByPartition function.
@@ -712,48 +713,15 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       return allPartitioningClusters;
     }
 
-    private List<SortedMap<String, SortedMap<String, NamedStructureEquivalenceSets<?>>>>
-        namedStructuresClustersByPartition(
-            List<NodeRoleDimension> allPartitions, Set<String> nodes) {
-      List<SortedMap<String, SortedMap<String, NamedStructureEquivalenceSets<?>>>>
-          allPartitioningClusters = new ArrayList<>();
-      if (allPartitions != null) {
-        for (NodeRoleDimension partition : allPartitions) {
-          SortedMap<String, SortedSet<String>> roleNodesMap = partition.createRoleNodesMap(nodes);
-          SortedMap<String, SortedMap<String, NamedStructureEquivalenceSets<?>>>
-              clustersByRoleForAPartitioning = new TreeMap<>();
-          for (Map.Entry<String, SortedSet<String>> roleNodes : roleNodesMap.entrySet()) {
-            CompareSameNameQuestionPlugin.CompareSameNameQuestion inner =
-                new CompareSameNameQuestionPlugin.CompareSameNameQuestion(
-                    null,
-                    new TreeSet<>(),
-                    null,
-                    null,
-                    new NodesSpecifier(namesToRegex(roleNodes.getValue())),
-                    true);
-            CompareSameNameQuestionPlugin.CompareSameNameAnswerer innerAnswerer =
-                new CompareSameNameQuestionPlugin().createAnswerer(inner, _batfish);
-            CompareSameNameQuestionPlugin.CompareSameNameAnswerElement innerAnswer =
-                innerAnswerer.answer();
-            clustersByRoleForAPartitioning.put(
-                roleNodes.getKey(), innerAnswer.getEquivalenceSets());
-          }
-          allPartitioningClusters.add(clustersByRoleForAPartitioning);
-        }
-      } else {
-        SortedMap<String, SortedMap<String, NamedStructureEquivalenceSets<?>>> singleRole =
-            new TreeMap<>();
-        CompareSameNameQuestionPlugin.CompareSameNameQuestion inner =
-            new CompareSameNameQuestionPlugin.CompareSameNameQuestion(
-                null, new TreeSet<>(), null, null, null, true);
-        CompareSameNameQuestionPlugin.CompareSameNameAnswerer innerAnswerer =
-            new CompareSameNameQuestionPlugin().createAnswerer(inner, _batfish);
-        CompareSameNameQuestionPlugin.CompareSameNameAnswerElement innerAnswer =
-            innerAnswerer.answer();
-        singleRole.put("Single Role:", innerAnswer.getEquivalenceSets());
-        allPartitioningClusters.add(singleRole);
-      }
-      return allPartitioningClusters;
+    private SortedMap<String, NamedStructureEquivalenceSets<?>> namedStructuresSingleRole() {
+      CompareSameNameQuestionPlugin.CompareSameNameQuestion inner =
+          new CompareSameNameQuestionPlugin.CompareSameNameQuestion(
+              null, new TreeSet<>(), null, null, null, true);
+      CompareSameNameQuestionPlugin.CompareSameNameAnswerer innerAnswerer =
+          new CompareSameNameQuestionPlugin().createAnswerer(inner, _batfish);
+      CompareSameNameQuestionPlugin.CompareSameNameAnswerElement innerAnswer =
+          innerAnswerer.answer();
+      return innerAnswer.getEquivalenceSets();
     }
 
     /* create a regex that matches exactly the given set of names.
@@ -839,9 +807,14 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
         SortedSet<Edge> edges = nodeEdges.get(parent);
         if (edges != null) {
           for (Edge e : edges) {
-            if (!e.getNode1().equals(parent) & nodes.contains(e.getNode1())) {
-              nextLayer.add(e.getNode1());
-              nodes.remove(e.getNode1());
+            if (!e.getInt1().contains("Management")
+                & !e.getInt2().contains("Management")
+                & !e.getInt1().contains("fxp0.0")
+                & !e.getInt2().contains("fxp0.0")) {
+              if (!e.getNode1().equals(parent) & nodes.contains(e.getNode1())) {
+                nextLayer.add(e.getNode1());
+                nodes.remove(e.getNode1());
+              }
             }
           }
         }

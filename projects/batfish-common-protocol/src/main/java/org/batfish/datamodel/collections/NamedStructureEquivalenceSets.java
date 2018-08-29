@@ -19,6 +19,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.SortedSet;
+import java.util.TreeSet;
 import org.batfish.common.BatfishException;
 import org.batfish.common.util.BatfishObjectMapper;
 import org.batfish.common.util.CollectionUtil;
@@ -134,14 +135,34 @@ public class NamedStructureEquivalenceSets<T> {
         _sameNamedStructures
             .entrySet()
             .stream()
-            .filter(
-                e ->
-                    !(e.getValue().size() == 1
-                        | (e.getValue().size() == 2
-                            & e.getValue().first().getNamedStructure() == null)))
+            .filter(e -> e.getValue().size() != 1)
             .collect(
                 ImmutableSortedMap.toImmutableSortedMap(
                     Comparator.naturalOrder(), Entry::getKey, Entry::getValue));
+  }
+
+  public void removeEmptySetsAndClean() {
+    ImmutableSortedMap.Builder<String, SortedSet<NamedStructureEquivalenceSet<T>>> builder =
+        new ImmutableSortedMap.Builder<>(Comparator.naturalOrder());
+    _sameNamedStructures.forEach(
+        (key, value) -> {
+          SortedSet<NamedStructureEquivalenceSet<T>> value2 = new TreeSet<>();
+          boolean missing = false;
+          for (NamedStructureEquivalenceSet<T> name : value) {
+            if (name.getNodes().size() > 0) {
+              value2.add(name);
+            }
+            if (name.getNamedStructure() == null) {
+              missing = true;
+            }
+          }
+          if (value2.size() > 0 & value2.size() != 1) {
+            if (!missing | value2.size() > 2) {
+              builder.put(key, value2);
+            }
+          }
+        });
+    _sameNamedStructures = builder.build();
   }
 
   @JsonProperty(PROP_SAME_NAMED_STRUCTURES)
