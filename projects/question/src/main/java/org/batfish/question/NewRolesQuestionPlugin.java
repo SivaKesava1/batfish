@@ -807,10 +807,11 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
         SortedSet<Edge> edges = nodeEdges.get(parent);
         if (edges != null) {
           for (Edge e : edges) {
+            //Don't consider if its a management interface.
             if (!e.getInt1().contains("Management")
                 & !e.getInt2().contains("Management")
-                & !e.getInt1().contains("fxp0.0")
-                & !e.getInt2().contains("fxp0.0")) {
+                & !e.getInt1().contains("fxp")
+                & !e.getInt2().contains("fxp")) {
               if (!e.getNode1().equals(parent) & nodes.contains(e.getNode1())) {
                 nextLayer.add(e.getNode1());
                 nodes.remove(e.getNode1());
