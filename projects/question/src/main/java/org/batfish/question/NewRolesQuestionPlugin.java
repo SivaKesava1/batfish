@@ -276,7 +276,10 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             SortedMap<String, SortedSet<String>> singleRoleNodeMap = new TreeMap<>();
             singleRoleNodeMap.put("Single Role", finalNodes);
             allPartitioningRoleNodeMap.add(singleRoleNodeMap);
-            namedStructuresAnalysis(singleRole, allPartitioningRoleNodeMap);
+            for (String property : singleRole.keySet()) {
+              System.out.println(property);
+              namedStructuresAnalysis(singleRole, allPartitioningRoleNodeMap, finalNodes, property);
+            }
           }
         }
       }
@@ -305,6 +308,9 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
         }
         if (structType.asText().contains("ipv6 prefix-list")) {
           removeHelper(singleRole, row, "Route6FilterList");
+        }
+        if (structType.asText().contains("ipv4 prefix-list")) {
+          removeHelper(singleRole, row, "RouteFilterList");
         }
       }
     }
@@ -338,11 +344,19 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
 
     private void namedStructuresAnalysis(
         SortedMap<String, NamedStructureEquivalenceSets<?>> singleRole,
-        List<SortedMap<String, SortedSet<String>>> allPartitioningRoleNodeMap) {
+        List<SortedMap<String, SortedSet<String>>> allPartitioningRoleNodeMap,
+        Set<String> devices,
+        String property) {
+      SortedMap<String, StringBuilder> serverNodeCONMap = new TreeMap<>();
+      String initial = new String(new char[allPartitioningRoleNodeMap.size()]).replace("\0", ",-");
+      for (String node : devices) {
+        serverNodeCONMap.put(
+            node.contains("#") ? node.substring(2) : node, new StringBuilder(initial));
+      }
       SortedMap<Long, List<String>> countAndNameOfStructure =
           new TreeMap<>(Comparator.reverseOrder());
       singleRole
-          .get("IpAccessList")
+          .get(property)
           .getSameNamedStructures()
           .forEach(
               (key, value) -> {
@@ -357,13 +371,16 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                 dataStructureNames.add(key);
                 countAndNameOfStructure.put(numberOfNodes, dataStructureNames);
               });
+      if(countAndNameOfStructure.isEmpty()){
+        return;
+      }
       String maxDataStructure =
           countAndNameOfStructure.get(countAndNameOfStructure.firstKey()).get(0);
       SortedSet<? extends NamedStructureEquivalenceSet<?>> ipAccessLists =
-          singleRole.get("IpAccessList").getSameNamedStructures().get(maxDataStructure);
+          singleRole.get(property).getSameNamedStructures().get(maxDataStructure);
       countAndNameOfStructure.forEach(
           (k, v) -> {
-            System.out.print("Number of Nodes = " + k + " ----Data Structure Names---");
+            System.out.print("Number of Nodes = " + k + " ----");
             System.out.println(v);
           });
       Map<Integer, SortedSet<String>> definitionClusters = new HashMap<>();
@@ -372,6 +389,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
         definitionClusters.put(i++, a.getNodes());
       }
       StringBuilder percentageString = new StringBuilder();
+      i = 0;
       for (SortedMap<String, SortedSet<String>> aPartitioning : allPartitioningRoleNodeMap) {
         for (Entry<String, SortedSet<String>> roles : aPartitioning.entrySet()) {
           Map<Integer, SortedSet<String>> roleClustersByDefinition = new HashMap<>();
@@ -394,7 +412,9 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
             }
           }
           int roleSize = roles.getValue().size();
-
+          int conformers = 0;
+          int outliers = 0;
+          int ni = 0;
           List<Entry<Integer, SortedSet<String>>> sortedClusters =
               roleClustersByDefinition
                   .entrySet()
@@ -403,23 +423,58 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                   .collect(Collectors.toList());
           percentageString.append("\nRole: ").append(roles.getKey());
           percentageString.append(",").append(roleSize);
+          StringBuilder clusterSizes = new StringBuilder();
           for (Entry<Integer, SortedSet<String>> cluster : sortedClusters) {
             if (cluster.getKey() > 0) {
-              percentageString
+              clusterSizes
                   .append(",")
                   .append(String.format("%.03f", (double) cluster.getValue().size() / roleSize))
                   .append(",1");
 
             } else {
-              percentageString
+              clusterSizes
                   .append(",")
                   .append(String.format("%.03f", (double) cluster.getValue().size() / roleSize))
                   .append(",0");
             }
+            String clusterGroup;
+            int clusterSize = cluster.getValue().size();
+            if (clusterSize > 0.2 * roleSize) {
+              clusterGroup = "C";
+              conformers += clusterSize;
+            } else if (clusterSize < 10) {
+              clusterGroup = "O";
+              outliers += clusterSize;
+            } else {
+              clusterGroup = "N";
+              ni += clusterSize;
+            }
+            for (String node : cluster.getValue()) {
+              serverNodeCONMap.put(
+                  node.contains("#") ? node.substring(2) : node,
+                  serverNodeCONMap
+                      .getOrDefault(
+                          node.contains("#") ? node.substring(2) : node, new StringBuilder(initial))
+                      .replace(i * 2 + 1, i * 2 + 2, clusterGroup));
+            }
           }
+          percentageString
+              .append(",")
+              .append(conformers)
+              .append(",")
+              .append(outliers)
+              .append(",")
+              .append(ni)
+              .append(clusterSizes);
         }
+        i++;
       }
-      System.out.println(percentageString);
+      StringBuilder conString = new StringBuilder();
+      for (Entry<String, StringBuilder> entry : serverNodeCONMap.entrySet()) {
+        conString.append(entry.getKey()).append(entry.getValue()).append("\n");
+      }
+      // System.out.println(conString);
+      // System.out.println(percentageString);
     }
 
     /*
@@ -728,10 +783,10 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
           }
         }
       }
-      StringBuilder CONString = new StringBuilder();
+      StringBuilder conString = new StringBuilder();
       for (Entry<String, StringBuilder> entry : serverNodeCONMap.entrySet()) {
         if (entry.getValue().toString().contains("O")) {
-          CONString.append(entry.getKey()).append(entry.getValue()).append("\n");
+          conString.append(entry.getKey()).append(entry.getValue()).append("\n");
         }
       }
       List<Entry<String, Map<String, Map<NavigableSet<String>, SortedSet<String>>>>>
@@ -744,7 +799,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
       // serverSuggestions(sortedOutliers,outlierNodesDefinition);
       // System.out.println(serverSuggestionByRole_BestSelection(sortedOutliers,outlierNodesDefinition));
       //      System.out.println(percentageString);
-      //      System.out.println(CONString);
+      //      System.out.println(conString);
 
     }
 
