@@ -266,15 +266,16 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
                 singleRole.entrySet()) {
               namedStructure.getValue().removeEmptySetsAndClean();
             }
-
             List<SortedMap<String, SortedSet<String>>> allPartitioningRoleNodeMap =
                 new ArrayList<>();
             allHopCountRoleDimensions.forEach(
                 (nd) -> allPartitioningRoleNodeMap.add(nd.createRoleNodesMap(nodesWithHopCount)));
-            Set<String> finalNodes = nodes;
+            SortedSet<String> finalNodes = new TreeSet<>(nodes);
             allCommonRoleDimensions.forEach(
                 (nd) -> allPartitioningRoleNodeMap.add(nd.createRoleNodesMap(finalNodes)));
-
+            SortedMap<String, SortedSet<String>> singleRoleNodeMap = new TreeMap<>();
+            singleRoleNodeMap.put("Single Role", finalNodes);
+            allPartitioningRoleNodeMap.add(singleRoleNodeMap);
             namedStructuresAnalysis(singleRole, allPartitioningRoleNodeMap);
           }
         }
@@ -338,7 +339,87 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
     private void namedStructuresAnalysis(
         SortedMap<String, NamedStructureEquivalenceSets<?>> singleRole,
         List<SortedMap<String, SortedSet<String>>> allPartitioningRoleNodeMap) {
-      singleRole.get("IpAccessLists");
+      SortedMap<Long, List<String>> countAndNameOfStructure =
+          new TreeMap<>(Comparator.reverseOrder());
+      singleRole
+          .get("IpAccessList")
+          .getSameNamedStructures()
+          .forEach(
+              (key, value) -> {
+                Long numberOfNodes =
+                    value
+                        .stream()
+                        .map(NamedStructureEquivalenceSet::getNodes)
+                        .mapToLong(Collection::size)
+                        .sum();
+                List<String> dataStructureNames =
+                    countAndNameOfStructure.getOrDefault(numberOfNodes, new ArrayList<>());
+                dataStructureNames.add(key);
+                countAndNameOfStructure.put(numberOfNodes, dataStructureNames);
+              });
+      String maxDataStructure =
+          countAndNameOfStructure.get(countAndNameOfStructure.firstKey()).get(0);
+      SortedSet<? extends NamedStructureEquivalenceSet<?>> ipAccessLists =
+          singleRole.get("IpAccessList").getSameNamedStructures().get(maxDataStructure);
+      countAndNameOfStructure.forEach(
+          (k, v) -> {
+            System.out.print("Number of Nodes = " + k + " ----Data Structure Names---");
+            System.out.println(v);
+          });
+      Map<Integer, SortedSet<String>> definitionClusters = new HashMap<>();
+      int i = 1;
+      for (NamedStructureEquivalenceSet<?> a : ipAccessLists) {
+        definitionClusters.put(i++, a.getNodes());
+      }
+      StringBuilder percentageString = new StringBuilder();
+      for (SortedMap<String, SortedSet<String>> aPartitioning : allPartitioningRoleNodeMap) {
+        for (Entry<String, SortedSet<String>> roles : aPartitioning.entrySet()) {
+          Map<Integer, SortedSet<String>> roleClustersByDefinition = new HashMap<>();
+          for (String node : roles.getValue()) {
+            boolean found = false;
+            for (Entry<Integer, SortedSet<String>> nodesMap : definitionClusters.entrySet()) {
+              if (nodesMap.getValue().contains(node.contains("#") ? node.substring(2) : node)) {
+                SortedSet<String> nodes =
+                    roleClustersByDefinition.getOrDefault(nodesMap.getKey(), new TreeSet<>());
+                nodes.add(node);
+                roleClustersByDefinition.put(nodesMap.getKey(), nodes);
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              SortedSet<String> nodes = roleClustersByDefinition.getOrDefault(0, new TreeSet<>());
+              nodes.add(node);
+              roleClustersByDefinition.put(0, nodes);
+            }
+          }
+          int roleSize = roles.getValue().size();
+
+          List<Entry<Integer, SortedSet<String>>> sortedClusters =
+              roleClustersByDefinition
+                  .entrySet()
+                  .stream()
+                  .sorted(Comparator.comparingInt(o -> -o.getValue().size()))
+                  .collect(Collectors.toList());
+          percentageString.append("\nRole: ").append(roles.getKey());
+          percentageString.append(",").append(roleSize);
+          for (Entry<Integer, SortedSet<String>> cluster : sortedClusters) {
+            if (cluster.getKey() > 0) {
+              percentageString
+                  .append(",")
+                  .append(String.format("%.03f", (double) cluster.getValue().size() / roleSize))
+                  .append(",1");
+
+            } else {
+              percentageString
+                  .append(",")
+                  .append(String.format("%.03f", (double) cluster.getValue().size() / roleSize))
+                  .append(",0");
+            }
+          }
+        }
+      }
+      System.out.println(percentageString);
     }
 
     /*
