@@ -148,14 +148,22 @@ public class NamedStructureEquivalenceSets<T> {
         (key, value) -> {
           SortedSet<NamedStructureEquivalenceSet<T>> value2 = new TreeSet<>();
           boolean missing = false;
+          StringBuilder dataStructurePrinting = new StringBuilder();
+          dataStructurePrinting.append(key).append(",");
+          int totalSize = 0;
           for (NamedStructureEquivalenceSet<T> name : value) {
             if (name.getNodes().size() > 0) {
               value2.add(name);
+              totalSize += name.getNodes().size();
+              dataStructurePrinting.append(name.getNodes().size()).append(",");
             }
             if (name.getNamedStructure() == null) {
               missing = true;
             }
           }
+//          if(totalSize >0){
+//            System.out.println(totalSize +","+dataStructurePrinting);
+//          }
           if (value2.size() > 0 & value2.size() != 1) {
             if (!missing | value2.size() > 2) {
               builder.put(key, value2);
