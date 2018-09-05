@@ -296,7 +296,7 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
         SortedMap<String, NamedStructureEquivalenceSets<?>> singleRole, TableAnswerElement answer) {
       List<Row> rowsList = answer.getRowsList();
       for (Row row : rowsList) {
-        JsonNode structType = row.get("structType");
+        JsonNode structType = row.get("Struct_Type");
         if (structType.asText().contains("ipv4 access-list")) {
           removeHelper(singleRole, row, "IpAccessList");
         }
@@ -328,8 +328,8 @@ public class NewRolesQuestionPlugin extends QuestionPlugin {
               .collect(Collectors.toMap(Entry::getValue, Entry::getKey));
       NamedStructureEquivalenceSets<?> equivalenceSets = singleRole.get(dataStructure);
       SortedSet<? extends NamedStructureEquivalenceSet<?>> structName =
-          equivalenceSets.getSameNamedStructures().get(row.get("structName").asText());
-      String name = fileNameHostMap.get(row.get("filename").asText());
+          equivalenceSets.getSameNamedStructures().get(row.get("Struct_Name").asText());
+      String name = fileNameHostMap.get(row.get("File_Name").asText());
       if (structName != null) {
         structName.forEach(
             v -> {
