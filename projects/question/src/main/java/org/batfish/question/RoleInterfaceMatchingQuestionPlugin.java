@@ -603,7 +603,7 @@ public class RoleInterfaceMatchingQuestionPlugin extends QuestionPlugin {
 
       for (String hostname : nodes) {
         Configuration node = configurations.get(hostname);
-        NodeData nodedata = new NodeData(interface_name_mapping(node.getInterfaces()));
+        NodeData nodedata = new NodeData(interface_name_mapping(node.getAllInterfaces()));
         requiredData.put(hostname, nodedata);
         nodeEdgesByRoles.put(
             hostname, sortEdgesByRoles(nodeEdges.get(hostname), hostname, roleNodeMap));

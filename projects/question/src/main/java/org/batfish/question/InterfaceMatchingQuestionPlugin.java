@@ -542,7 +542,7 @@ public class InterfaceMatchingQuestionPlugin extends QuestionPlugin {
       Map<String, NodeData> requireddata = new HashMap<String,NodeData>();     
       for(String hostname: nodes) {
         Configuration node = configurations.get(hostname);
-        NodeData nodedata = new NodeData(interface_name_mapping(node.getInterfaces()), get_bgp_neighbors(node));
+        NodeData nodedata = new NodeData(interface_name_mapping(node.getAllInterfaces()), get_bgp_neighbors(node));
         requireddata.put(hostname, nodedata);
         
       }

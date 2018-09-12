@@ -84,15 +84,34 @@ public class TemplatesQuestionPlugin extends QuestionPlugin {
           equivalenceSets.get("IpAccessList");
       Set<String> strings = dataStructureEquivalenceSets.getSameNamedStructures().keySet();
 
-      SortedMap<String, Set<String>> bitVectorMap = new TreeMap<>();
+      // basedOnBitVectors(dataStructureEquivalenceSets);
+      SortedMap<String, List<String>> tokenMap = new TreeMap<>();
+      SortedMap<Integer, SortedSet<String>> countTokenMap = new TreeMap<>(Comparator.reverseOrder());
+      strings.forEach(
+          v -> {
+            List<String> tokens =
+                pretokenizeName(v).stream().map(Pair::getFirst).collect(Collectors.toList());
+            tokenMap.put(v, tokens);
+            SortedSet<String> aclSet = countTokenMap.getOrDefault(tokens.size(), new TreeSet<>());
+            aclSet.add(v);
+            countTokenMap.put(tokens.size(), aclSet);
+          });
 
+      return answerElement;
+    }
+
+    private void basedOnBitVectors(NamedStructureEquivalenceSets<?> dataStructureEquivalenceSets) {
+      SortedMap<String, Set<String>> bitVectorMap = new TreeMap<>();
+      SortedMap<String, List<IpAccessListLine>> aclDefinitions = new TreeMap<>();
       dataStructureEquivalenceSets
           .getSameNamedStructures()
           .forEach(
               (key, value) -> {
                 if (value.size() == 1) {
+                  // System.out.println(key + "$" + value.first().getNodes());
                   IpAccessList namedStructure = (IpAccessList) value.first().getNamedStructure();
                   List<IpAccessListLine> lines = namedStructure.getLines();
+                  aclDefinitions.put(key, lines);
                   StringBuilder sb = new StringBuilder();
                   lines.forEach(
                       x -> {
@@ -108,6 +127,7 @@ public class TemplatesQuestionPlugin extends QuestionPlugin {
                   bitVectorMap.put(sb.toString(), sameBitStructures);
                 }
               });
+      // bitVectorMap.forEach((key, value) -> System.out.println(key+"$"+value));
       Set<String> dataStructuresForTemplating =
           bitVectorMap
               .values()
@@ -115,6 +135,7 @@ public class TemplatesQuestionPlugin extends QuestionPlugin {
               .max(Comparator.comparingInt(Collection::size))
               .orElseThrow(
                   () -> new BatfishException("Unable to retrieve the maximum sized IpAccessList"));
+
       SortedMap<String, List<String>> tokenMap = new TreeMap<>();
       dataStructuresForTemplating.forEach(
           v ->
@@ -128,23 +149,28 @@ public class TemplatesQuestionPlugin extends QuestionPlugin {
               .max(Comparator.comparing(Collection::size))
               .orElseThrow(
                   () -> new BatfishException("Unable to retrieve the maximum sized tokenize List"));
-      List<String> template = new ArrayList<>(longestNamedStructure);
-      SortedMap<String,Set<String>> parameters = new TreeMap<>();
-      for (List<String> tokens : tokenMap.values()) {
-        int lastRetrieved = -1;
-        for (int i = 0; i < tokens.size(); i++) {
-          int current = template.indexOf(tokens.get(i));
-          if (lastRetrieved == -1) {
-            if (current > 0) {
-
-            }
-          }
-          lastRetrieved = current;
+//       List<String> template = new ArrayList<>(longestNamedStructure);
+//       SortedMap<String,Set<String>> parameters = new TreeMap<>();
+//       for (List<String> tokens : tokenMap.values()) {
+//         int lastRetrieved = -1;
+//         for (int i = 0; i < tokens.size(); i++) {
+//           int current = template.indexOf(tokens.get(i));
+//           if (lastRetrieved == -1) {
+//             if (current > 0) {
+//
+//             }
+//           }
+//           lastRetrieved = current;
+//         }
+//       }
+      int numberOfLines = aclDefinitions.get(dataStructuresForTemplating.iterator().next()).size();
+      List<IpAccessListLine> template =
+          new ArrayList<>(aclDefinitions.get(dataStructuresForTemplating.iterator().next()));
+      for (int i = 0; i < numberOfLines; i++) {
+        for (String node : dataStructuresForTemplating) {
+          IpAccessListLine ipAccessListLine = aclDefinitions.get(node).get(i);
         }
       }
-
-      System.out.println(dataStructuresForTemplating);
-      return answerElement;
     }
   }
 
