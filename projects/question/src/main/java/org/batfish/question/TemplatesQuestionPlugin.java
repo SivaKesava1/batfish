@@ -9,6 +9,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.SortedSet;
@@ -20,6 +21,8 @@ import org.batfish.common.BatfishException;
 import org.batfish.common.Pair;
 import org.batfish.common.plugin.IBatfish;
 import org.batfish.common.plugin.Plugin;
+import org.batfish.datamodel.Configuration;
+import org.batfish.datamodel.Interface;
 import org.batfish.datamodel.IpAccessList;
 import org.batfish.datamodel.IpAccessListLine;
 import org.batfish.datamodel.LineAction;
@@ -27,7 +30,7 @@ import org.batfish.datamodel.answers.AnswerElement;
 import org.batfish.datamodel.collections.NamedStructureEquivalenceSets;
 import org.batfish.datamodel.questions.NodesSpecifier;
 import org.batfish.datamodel.questions.Question;
-
+import org.batfish.role.InferRoles.PreToken;
 
 @AutoService(Plugin.class)
 public class TemplatesQuestionPlugin extends QuestionPlugin {
@@ -96,7 +99,7 @@ public class TemplatesQuestionPlugin extends QuestionPlugin {
             aclSet.add(v);
             countTokenMap.put(tokens.size(), aclSet);
           });
-
+     basedOnNames();
       return answerElement;
     }
 
@@ -172,7 +175,77 @@ public class TemplatesQuestionPlugin extends QuestionPlugin {
         }
       }
     }
+
+    private  void basedOnNames(){
+      SortedMap<String, Configuration> configurations = _batfish.loadConfigurations();
+      SortedMap<String, Set<ACLData>> countMap = new TreeMap<>();
+      for (Map.Entry<String, Configuration> c : configurations.entrySet()) {
+        String nodeName = c.getKey();
+        SortedMap<String, Integer> aclTypeMapFromInterfaces = new TreeMap<>();
+        c.getValue()
+            .getAllInterfaces()
+            .values()
+            .forEach(
+                (intf) -> {
+                  if (intf.getIncomingFilter() != null) {
+                    if (aclTypeMapFromInterfaces.getOrDefault(intf.getIncomingFilterName(), 0)
+                        != 0) {
+                      System.out.println("conflict in Input vs output filter category");
+                    }
+                    aclTypeMapFromInterfaces.put(intf.getIncomingFilterName(), 0);
+                  }
+                  if (intf.getInboundFilterName() != null) {
+                    if (aclTypeMapFromInterfaces.getOrDefault(intf.getInboundFilterName(), 0)
+                        != 0) {
+                      System.out.println("conflict in Input vs output filter category");
+                    }
+                    aclTypeMapFromInterfaces.put(intf.getInboundFilterName(), 0);
+                  }
+                  if (intf.getOutgoingFilterName() != null) {
+                    if (aclTypeMapFromInterfaces.getOrDefault(intf.getOutgoingFilterName(), 1)
+                        != 1) {
+                      System.out.println("conflict in Input vs output filter category");
+                    }
+                    aclTypeMapFromInterfaces.put(intf.getOutgoingFilterName(), 1);
+                  }
+                });
+        c.getValue()
+            .getIpAccessLists()
+            .forEach(
+                (name, acl) -> {
+                  ACLData aclData =
+                      new ACLData(
+                          nodeName,
+                          aclTypeMapFromInterfaces.getOrDefault(name, 2),
+                          pretokenizeName(name),
+                          acl);
+                  String key =
+                      Integer.toString(aclData._nameTokens.size())
+                          + "#"
+                          + Integer.toString(aclTypeMapFromInterfaces.getOrDefault(name, 2));
+                  Set<ACLData> acls = countMap.getOrDefault(key, new HashSet<>());
+                  acls.add(aclData);
+                  countMap.put(key, acls);
+                });
+      }
+      System.out.println("hello");
+    }
+
+    private class ACLData{
+      String _nodeName;
+      int _type;
+      List<Pair<String, PreToken>> _nameTokens;
+      IpAccessList _acl;
+
+      ACLData(String nodeName, int type, List<Pair<String, PreToken>> tokens, IpAccessList acl){
+        _nodeName = nodeName;
+        _type = type;
+        _nameTokens = tokens;
+        _acl = acl;
+      }
+    }
   }
+
 
   // <question_page_comment>
   /**
