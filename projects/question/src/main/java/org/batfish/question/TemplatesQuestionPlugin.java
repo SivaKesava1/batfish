@@ -22,7 +22,6 @@ import org.batfish.common.Pair;
 import org.batfish.common.plugin.IBatfish;
 import org.batfish.common.plugin.Plugin;
 import org.batfish.datamodel.Configuration;
-import org.batfish.datamodel.Interface;
 import org.batfish.datamodel.IpAccessList;
 import org.batfish.datamodel.IpAccessListLine;
 import org.batfish.datamodel.LineAction;
@@ -35,6 +34,8 @@ import org.batfish.role.InferRoles.PreToken;
 @AutoService(Plugin.class)
 public class TemplatesQuestionPlugin extends QuestionPlugin {
 
+  private static final double TOKEN_ABSOLUTE_THRESHOLD = 2;
+  private static final double TOKEN_RELATIVE_THRESHOLD = 0.2;
   public static class TemplateAnswerElement extends AnswerElement {
     private static final String PROP_TEMPLATE_MAP = "templateMap";
     private SortedMap<StringBuilder, SortedSet<String>> _templateMap;
@@ -228,24 +229,130 @@ public class TemplatesQuestionPlugin extends QuestionPlugin {
                   countMap.put(key, acls);
                 });
       }
+      for (Set<ACLData> sameTokenSet : countMap.values()) {
+        while (sameTokenSet.size() > 0) {
+          ACLData pickedOne = sameTokenSet.iterator().next();
+          Set<ACLData> aclTemplateSet = new HashSet<>();
+          aclTemplateSet.add(pickedOne);
+          for (ACLData anACL : sameTokenSet) {
+            addCompatibleACL(pickedOne, anACL, aclTemplateSet);
+          }
+          if (aclTemplateSet.size() > 1) {
+            generateTemplate(aclTemplateSet);
+          }
+          sameTokenSet.removeAll(aclTemplateSet);
+        }
+      }
       System.out.println("hello");
     }
 
-    private class ACLData{
-      String _nodeName;
+    private void generateTemplate(Set<ACLData> aclTemplateSet) {
+
+      ACLData largestACL =
+          aclTemplateSet
+              .stream()
+              .max(Comparator.comparingInt(value -> value.get_acl().getLines().size()))
+              .orElseThrow(() -> new BatfishException("Unable to get the Largest ACL"));
+
+      List<IpAccessListLine> linesTemplate = new ArrayList<>(largestACL.get_acl().getLines());
+      List<String> nameTemplate = largestACL.getNameTokens()
+          .stream()
+          .map(Pair::getFirst)
+          .collect(Collectors.toList());
+
+      List<ACLData> sortedACLs =
+          aclTemplateSet
+              .stream()
+              .sorted(
+                  (v, l) -> v.get_acl().getLines().size() >= l.get_acl().getLines().size() ? 0 : 1)
+              .collect(Collectors.toList());
+      SortedMap<String, SortedMap<String, String>> parameterMap = new TreeMap<>();
+      int parameterCount = 0;
+
+      for (ACLData acl : sortedACLs) {
+        List<String> nameTokens =
+            acl.getNameTokens().stream().map(Pair::getFirst).collect(Collectors.toList());
+        for (int i = 0; i < nameTokens.size(); i++) {
+          if (!nameTokens.get(i).equals(nameTemplate.get(i))) {
+            if (nameTemplate.get(i).contains("#P")) {
+              SortedMap<String, String> nodeParameterMap =
+                  parameterMap.getOrDefault(nameTemplate.get(i), new TreeMap<>());
+              nodeParameterMap.put(acl.get_nodeName(), nameTokens.get(i));
+              parameterMap.put(nameTemplate.get(i), nodeParameterMap);
+            } else {
+              SortedMap<String, String> nodeParameterMap = new TreeMap<>();
+              nodeParameterMap.put(acl.get_nodeName(), nameTokens.get(i));
+              nodeParameterMap.put(largestACL.get_nodeName(), nameTemplate.get(i));
+              parameterCount += 1;
+              nameTemplate.set(i, "#P" + Integer.toString(parameterCount) + "#");
+              parameterMap.put("#P" + Integer.toString(parameterCount) + "#", nodeParameterMap);
+            }
+          }
+        }
+
+
+      }
+      System.out.println(nameTemplate);
+    }
+
+    private void addCompatibleACL(ACLData pickedOne, ACLData anACL, Set<ACLData> aclTemplateSet) {
+      Set<String> nodeNames =
+          aclTemplateSet.stream().map(ACLData::get_nodeName).collect(Collectors.toSet());
+      int tokenDiff = tokenDifference(pickedOne._nameTokens, anACL._nameTokens);
+      if (tokenDiff <= TOKEN_ABSOLUTE_THRESHOLD
+          & (double) tokenDiff / pickedOne.getNameTokens().size() <= TOKEN_RELATIVE_THRESHOLD) {
+        if (!nodeNames.contains(anACL.get_nodeName())) {
+          aclTemplateSet.add(anACL);
+        } else {
+          ACLData aclData =
+              aclTemplateSet
+                  .stream()
+                  .filter(v -> v.get_nodeName().equals(anACL.get_nodeName()))
+                  .collect(Collectors.toList())
+                  .get(0);
+          if (tokenDiff < tokenDifference(pickedOne._nameTokens, aclData._nameTokens)) {
+            aclTemplateSet.remove(aclData);
+            aclTemplateSet.add(anACL);
+          }
+        }
+      }
+    }
+
+    private int tokenDifference(
+        List<Pair<String, PreToken>> nameTokens, List<Pair<String, PreToken>> nameTokens1) {
+      int differenceCount = 0;
+      for (int i = 0; i < nameTokens.size(); i++) {
+        if (!nameTokens.get(i).getFirst().equals(nameTokens1.get(i).getFirst())) {
+          differenceCount += 1;
+        }
+      }
+      return differenceCount;
+    }
+
+    private class ACLData {
+      private String _nodeName;
       int _type;
-      List<Pair<String, PreToken>> _nameTokens;
+      private List<Pair<String, PreToken>> _nameTokens;
       IpAccessList _acl;
 
-      ACLData(String nodeName, int type, List<Pair<String, PreToken>> tokens, IpAccessList acl){
+      ACLData(String nodeName, int type, List<Pair<String, PreToken>> tokens, IpAccessList acl) {
         _nodeName = nodeName;
         _type = type;
         _nameTokens = tokens;
         _acl = acl;
       }
+
+      String get_nodeName() {
+        return _nodeName;
+      }
+      List<Pair<String, PreToken>> getNameTokens(){
+        return  _nameTokens;
+      }
+      IpAccessList get_acl(){
+        return  _acl;
+      }
     }
   }
-
 
   // <question_page_comment>
   /**
