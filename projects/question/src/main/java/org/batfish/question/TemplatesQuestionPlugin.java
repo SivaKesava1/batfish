@@ -25,6 +25,7 @@ import org.batfish.datamodel.Configuration;
 import org.batfish.datamodel.IpAccessList;
 import org.batfish.datamodel.IpAccessListLine;
 import org.batfish.datamodel.LineAction;
+import org.batfish.datamodel.acl.TrueExpr;
 import org.batfish.datamodel.answers.AnswerElement;
 import org.batfish.datamodel.collections.NamedStructureEquivalenceSets;
 import org.batfish.datamodel.questions.NodesSpecifier;
@@ -100,8 +101,70 @@ public class TemplatesQuestionPlugin extends QuestionPlugin {
             aclSet.add(v);
             countTokenMap.put(tokens.size(), aclSet);
           });
-     basedOnNames();
+     getBitVectorMap(dataStructureEquivalenceSets,false);
+//     basedOnNames();
       return answerElement;
+    }
+
+    private <T> SortedMap<String, Set<String>> getBitVectorMap(
+        NamedStructureEquivalenceSets<T> dataStructureEquivalenceSets, boolean singleDefinition) {
+      SortedMap<String, Set<String>> bitVectorMap = new TreeMap<>();
+      SortedMap<String, SortedSet<String>> bitVectorNodesMap = new TreeMap<>();
+      SortedMap<String,Set<String>> pdSequenceMap = new TreeMap<>();
+      SortedMap<String,SortedSet<String>> pdSequenceNodesMap = new TreeMap<>();
+      dataStructureEquivalenceSets
+          .getSameNamedStructures()
+          .forEach(
+              (key, value) -> {
+                if (!(singleDefinition & value.size() > 1)) {
+                  value.forEach(
+                      v -> {
+                        IpAccessList namedStructure = (IpAccessList) v.getNamedStructure();
+                        List<IpAccessListLine> lines = namedStructure.getLines();
+                        StringBuilder sb = new StringBuilder();
+                        StringBuilder pdBuilder = new StringBuilder();
+                        pdBuilder.append("$");
+                        lines.forEach(
+                            x -> {
+                              if (x.getAction().equals(LineAction.PERMIT)) {
+                                sb.append("1");
+                                if (pdBuilder.lastIndexOf("P") != pdBuilder.length() - 1) {
+                                  pdBuilder.append("P");
+                                }
+                              } else {
+                                sb.append("0");
+                                if (pdBuilder.lastIndexOf("D") != pdBuilder.length() - 1) {
+                                  pdBuilder.append("D");
+                                }
+                              }
+                            });
+                        Set<String> sameBitStructures =
+                            bitVectorMap.getOrDefault(sb.toString(), new HashSet<>());
+                        sameBitStructures.add(key);
+                        bitVectorMap.put(sb.toString(), sameBitStructures);
+
+                        Set<String> samePDStructures =
+                            pdSequenceMap.getOrDefault(pdBuilder.toString(), new HashSet<>());
+                        samePDStructures.add(key);
+                        pdSequenceMap.put(pdBuilder.toString(), samePDStructures);
+
+                        SortedSet<String> sameBitNodes = bitVectorNodesMap.getOrDefault(
+                            sb.toString(),
+                            new TreeSet<>());
+                        sameBitNodes.addAll(v.getNodes());
+                        bitVectorNodesMap.put(sb.toString(),sameBitNodes);
+
+                        SortedSet<String> samePDStructuresNodes =
+                            pdSequenceNodesMap.getOrDefault(pdBuilder.toString(), new TreeSet<>());
+                        samePDStructuresNodes.addAll(v.getNodes());
+                        pdSequenceNodesMap.put(pdBuilder.toString(), samePDStructuresNodes);
+
+                      });
+                }
+              });
+      pdSequenceMap.forEach((key, value) -> System.out.println(key+"$"+pdSequenceNodesMap.get(key).size()));
+      bitVectorMap.forEach((key, value) -> System.out.println(key+"$"+bitVectorNodesMap.get(key).size()));
+      return bitVectorMap;
     }
 
     private void basedOnBitVectors(NamedStructureEquivalenceSets<?> dataStructureEquivalenceSets) {
