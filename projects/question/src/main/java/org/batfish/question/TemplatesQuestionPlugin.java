@@ -17,6 +17,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.batfish.common.Answerer;
 import org.batfish.common.BatfishException;
 import org.batfish.common.Pair;
@@ -26,7 +27,6 @@ import org.batfish.datamodel.Configuration;
 import org.batfish.datamodel.IpAccessList;
 import org.batfish.datamodel.IpAccessListLine;
 import org.batfish.datamodel.LineAction;
-import org.batfish.datamodel.acl.TrueExpr;
 import org.batfish.datamodel.answers.AnswerElement;
 import org.batfish.datamodel.collections.NamedStructureEquivalenceSet;
 import org.batfish.datamodel.collections.NamedStructureEquivalenceSets;
@@ -103,8 +103,9 @@ public class TemplatesQuestionPlugin extends QuestionPlugin {
             aclSet.add(v);
             countTokenMap.put(tokens.size(), aclSet);
           });
-     getBitVectorMap(dataStructureEquivalenceSets,false,"voip_[a-z]*_out_[0-9]*");
-//     basedOnNames();
+      // getBitVectorMap(dataStructureEquivalenceSets, false, "br_wlan_mgmt_[a-z]*_in_[0-9]*");
+      // basedOnNames();
+      lineMatchingTesting(dataStructureEquivalenceSets);
       return answerElement;
     }
 
@@ -173,6 +174,74 @@ public class TemplatesQuestionPlugin extends QuestionPlugin {
 
 
       return bitVectorMap;
+    }
+
+    private void lineMatchingTesting(
+        NamedStructureEquivalenceSets<?> dataStructureEquivalenceSets) {
+      Set<String> strings =
+          new HashSet<>(dataStructureEquivalenceSets.getSameNamedStructures().keySet());
+      IpAccessList acl1 =
+          (IpAccessList)
+              dataStructureEquivalenceSets
+                  .getSameNamedStructures()
+                  .get(strings.iterator().next())
+                  .first()
+                  .getNamedStructure();
+      strings.remove(strings.iterator().next());
+      IpAccessList acl2 =
+          (IpAccessList)
+              dataStructureEquivalenceSets
+                  .getSameNamedStructures()
+                  .get(strings.iterator().next())
+                  .first()
+                  .getNamedStructure();
+      lineMatching(acl1.getLines(), acl2.getLines());
+    }
+
+    private void lineMatching(
+        List<IpAccessListLine> firstBlock, List<IpAccessListLine> secondBlock) {
+      for (int i = 0; i < firstBlock.size() - 1; i++) {
+        if (!firstBlock.get(i).getAction().equals(firstBlock.get(i + 1).getAction())) {
+          throw new BatfishException("All the lines of first block are not of same type ");
+        }
+      }
+      for (int i = 0; i < secondBlock.size() - 1; i++) {
+        if (!secondBlock.get(i).getAction().equals(secondBlock.get(i + 1).getAction())) {
+          throw new BatfishException("All the lines of Second block are not of same type ");
+        }
+      }
+      if (!firstBlock.get(0).getAction().equals(secondBlock.get(0).getAction())) {
+        throw new BatfishException("First Block and Second block are of different nature");
+      }
+      List<IpAccessListLine> exactMatches = new ArrayList<>();
+      Set<Integer> firstIndices =
+          IntStream.range(0, firstBlock.size()).boxed().collect(Collectors.toSet());
+      Set<Integer> secondIndices =
+          IntStream.range(0, secondBlock.size()).boxed().collect(Collectors.toSet());
+
+      for (int i = 0; i < firstBlock.size(); i++) {
+        IpAccessListLine aFirstBlock = firstBlock.get(i);
+        for (int j = 0; j < secondBlock.size(); j++) {
+          if (secondIndices.contains(j) & aFirstBlock.equals(secondBlock.get(j))) {
+            firstIndices.remove(i);
+            secondIndices.remove(j);
+            exactMatches.add(aFirstBlock);
+            break;
+          }
+        }
+      }
+      List<IpAccessListLine> firstBlockRemaining = new ArrayList<>();
+      for (int i = 0; i < firstBlock.size(); i++) {
+        if (firstIndices.contains(i)) {
+          firstBlockRemaining.add(firstBlock.get(i));
+        }
+      }
+      List<IpAccessListLine> secondBlockRemaining = new ArrayList<>();
+      for (int i = 0; i < secondBlock.size(); i++) {
+        if (secondIndices.contains(i)) {
+          secondBlockRemaining.add(secondBlock.get(i));
+        }
+      }
     }
 
     private <T> void ACLPrinting(
