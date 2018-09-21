@@ -24,9 +24,12 @@ import org.batfish.common.Pair;
 import org.batfish.common.plugin.IBatfish;
 import org.batfish.common.plugin.Plugin;
 import org.batfish.datamodel.Configuration;
+import org.batfish.datamodel.HeaderSpace;
 import org.batfish.datamodel.IpAccessList;
 import org.batfish.datamodel.IpAccessListLine;
 import org.batfish.datamodel.LineAction;
+import org.batfish.datamodel.acl.AclLineMatchExpr;
+import org.batfish.datamodel.acl.MatchHeaderSpace;
 import org.batfish.datamodel.answers.AnswerElement;
 import org.batfish.datamodel.collections.NamedStructureEquivalenceSet;
 import org.batfish.datamodel.collections.NamedStructureEquivalenceSets;
@@ -90,7 +93,6 @@ public class TemplatesQuestionPlugin extends QuestionPlugin {
       NamedStructureEquivalenceSets<?> dataStructureEquivalenceSets =
           equivalenceSets.get("IpAccessList");
       Set<String> strings = dataStructureEquivalenceSets.getSameNamedStructures().keySet();
-
       // basedOnBitVectors(dataStructureEquivalenceSets);
       SortedMap<String, List<String>> tokenMap = new TreeMap<>();
       SortedMap<Integer, SortedSet<String>> countTokenMap = new TreeMap<>(Comparator.reverseOrder());
@@ -242,6 +244,25 @@ public class TemplatesQuestionPlugin extends QuestionPlugin {
           secondBlockRemaining.add(secondBlock.get(i));
         }
       }
+
+      if(firstBlockRemaining.size()<secondBlockRemaining.size()){
+        List<IpAccessListLine> tmp =firstBlockRemaining;
+        firstBlockRemaining = secondBlockRemaining;
+        secondBlockRemaining = tmp;
+      }
+      double[][] weight = new double[firstBlockRemaining.size()][secondBlockRemaining.size()];
+      for (int i = 0; i < firstBlockRemaining.size(); i++) {
+        for (int j = 0; j < secondBlockRemaining.size(); j++) {
+          weight[i][j] = 0;
+        }
+      }
+      MatchHeaderSpace matchCondition = (MatchHeaderSpace) firstBlockRemaining.get(0)
+          .getMatchCondition();
+      HeaderSpace headerspace = matchCondition.getHeaderspace();
+      headerspace.setNegate(true);
+      headerspace.compareTo(((MatchHeaderSpace) firstBlockRemaining.get(1)
+          .getMatchCondition()).getHeaderspace());
+      System.out.println(firstBlockRemaining);
     }
 
     private <T> void ACLPrinting(
